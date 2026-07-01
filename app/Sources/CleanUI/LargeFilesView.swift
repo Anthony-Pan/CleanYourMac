@@ -6,8 +6,10 @@ import CleanCore
 /// user's content folders and move the ones they pick to the Trash. Nothing is
 /// ever selected automatically — these are the user's own documents.
 struct LargeFilesView: View {
-    @State private var model = LargeFilesViewModel()
+    @Bindable var model: LargeFilesViewModel
     @State private var showConfirm = false
+
+    init(model: LargeFilesViewModel) { self.model = model }
 
     private var busy: Bool { model.phase == .scanning || model.phase == .cleaning }
 

@@ -35,6 +35,8 @@ public struct RootView: View {
     // switches instead of being thrown away each time the view is recreated.
     @State private var scanModel = ScanViewModel()
     @State private var uninstallModel = UninstallViewModel()
+    @State private var largeFilesModel = LargeFilesViewModel()
+    @State private var privacyModel = PrivacyViewModel()
 
     public var body: some View {
         HStack(spacing: 0) {
@@ -47,9 +49,9 @@ public struct RootView: View {
                 case .uninstaller:
                     UninstallerView(model: uninstallModel)
                 case .largeFiles:
-                    LargeFilesView()
+                    LargeFilesView(model: largeFilesModel)
                 case .privacy:
-                    PrivacyView()
+                    PrivacyView(model: privacyModel)
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
