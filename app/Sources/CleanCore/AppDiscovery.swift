@@ -49,7 +49,11 @@ public struct AppDiscovery {
         let displayName = (info?["CFBundleDisplayName"] as? String)?.cleaned
         let bundleName = (info?["CFBundleName"] as? String)?.cleaned
         let version = (info?["CFBundleShortVersionString"] as? String)?.cleaned
-        let name = displayName ?? bundleName ?? url.deletingPathExtension().lastPathComponent
+        // Use the bundle's file name (what Finder shows in /Applications) as the
+        // display name, so apps that share a CFBundleDisplayName — e.g. "Xcode"
+        // and "Xcode-beta", both CFBundleName "Xcode" — stay distinguishable.
+        let fileName = url.deletingPathExtension().lastPathComponent
+        let name = fileName.isEmpty ? (displayName ?? bundleName ?? "Unknown") : fileName
 
         return InstalledApp(
             url: url,
@@ -101,13 +105,12 @@ public struct AppDiscovery {
         return ids
     }
 
-    /// An app is "system" (never uninstallable) if its bundle ID is Apple's, or
-    /// it resolves to somewhere under `/System` (defense in depth — we do not
-    /// scan there, but a symlink could point in).
+    /// An app is an untouchable *system* app only when it physically lives under
+    /// `/System` (SIP-protected; we don't even scan there, but a symlink could
+    /// point in). Apple apps installed in `/Applications` — Xcode, Xcode-beta,
+    /// Configurator, the pro apps — are user-removable and must NOT be blocked
+    /// just for carrying a `com.apple.*` identifier.
     static func isSystemApp(bundleID: String?, url: URL) -> Bool {
-        if let id = bundleID?.lowercased(), id == "com.apple" || id.hasPrefix("com.apple.") {
-            return true
-        }
         let system = URL(fileURLWithPath: "/System").canonicalized
         return system.isSameOrAncestor(of: url.canonicalized)
     }

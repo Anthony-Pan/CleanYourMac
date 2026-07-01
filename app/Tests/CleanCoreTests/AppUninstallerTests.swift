@@ -124,10 +124,21 @@ final class AppUninstallerTests: XCTestCase {
         XCTAssertGreaterThan(foo.sizeBytes, 0)
     }
 
-    func test_discoveryFlagsAppleAppsAsSystem() throws {
-        let bundle = try makeApp(fileName: "SystemThing.app", bundleID: "com.apple.SomeTool", name: "SystemThing")
+    func test_appleAppInApplicationsIsRemovable() throws {
+        // A com.apple.* app installed in /Applications (e.g. Xcode) is
+        // user-removable — only apps under /System are protected. The display
+        // name also comes from the file name, so it stays distinguishable.
+        let bundle = try makeApp(fileName: "Xcode-beta.app", bundleID: "com.apple.dt.Xcode", name: "Xcode")
         let app = try XCTUnwrap(AppDiscovery(policy: policy()).readApp(at: bundle))
-        XCTAssertTrue(app.isSystem)
+        XCTAssertFalse(app.isSystem, "Apple apps in /Applications are removable")
+        XCTAssertEqual(app.name, "Xcode-beta", "name comes from the bundle file name")
+    }
+
+    func test_onlyAppsUnderSystemAreProtected() {
+        XCTAssertTrue(AppDiscovery.isSystemApp(
+            bundleID: "com.apple.Safari", url: URL(fileURLWithPath: "/System/Applications/Safari.app")))
+        XCTAssertFalse(AppDiscovery.isSystemApp(
+            bundleID: "com.apple.dt.Xcode", url: URL(fileURLWithPath: "/Applications/Xcode.app")))
     }
 
     // MARK: - Leftover attribution
@@ -281,7 +292,9 @@ final class AppUninstallerTests: XCTestCase {
 
     func test_systemAppYieldsEmptyPlanAndBundleIsNeverRemoved() throws {
         let bundle = try makeApp(fileName: "SystemThing.app", bundleID: "com.apple.SomeTool", name: "SystemThing")
-        let app = try XCTUnwrap(AppDiscovery(policy: policy()).readApp(at: bundle))
+        // An app flagged isSystem, as a real /System-resident app would be.
+        let app = InstalledApp(url: bundle, name: "SystemThing", bundleID: "com.apple.SomeTool",
+                               version: nil, sizeBytes: 4_096, isSystem: true)
 
         // Planning refuses system apps outright.
         XCTAssertTrue(uninstaller().plan(for: app).leftovers.isEmpty)
