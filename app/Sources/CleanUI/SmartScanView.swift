@@ -13,8 +13,12 @@ struct SmartScanView: View {
             StageBackground(glow: scanning)
 
             switch model.phase {
-            case .idle, .scanning, .cleaning:
-                busyView
+            case .idle:
+                idleView
+            case .scanning:
+                scanningView
+            case .cleaning:
+                cleaningView
             case .done:
                 doneView
             case .results:
@@ -30,16 +34,95 @@ struct SmartScanView: View {
             }
         }
         .navigationTitle("Smart Scan")
-        .task { if model.phase == .idle { await model.scan() } }
     }
 
-    // MARK: - Busy (scanning / cleaning)
+    // MARK: - Idle (start screen with a Scan button)
 
-    private var busyView: some View {
+    private var idleView: some View {
+        VStack(spacing: 22) {
+            ZStack {
+                Circle().stroke(.white.opacity(0.08), lineWidth: 15)
+                Circle()
+                    .fill(RadialGradient(colors: [Palette.accent.opacity(0.18), .clear],
+                                         center: .center, startRadius: 20, endRadius: 130))
+                Image(systemName: "sparkles")
+                    .font(.system(size: 58))
+                    .foregroundStyle(Palette.accent)
+            }
+            .frame(width: 214, height: 214)
+
+            VStack(spacing: 6) {
+                Text("Smart Scan")
+                    .font(.system(size: 28, weight: .bold))
+                    .foregroundStyle(Palette.ink)
+                Text("Find caches, logs and developer junk you can safely reclaim.")
+                    .font(.callout)
+                    .foregroundStyle(Palette.muted)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 340)
+            }
+
+            Button { Task { await model.scan() } } label: {
+                Label("Scan", systemImage: "sparkles")
+                    .font(.headline)
+                    .foregroundStyle(Color.black.opacity(0.85))
+                    .padding(.horizontal, 40)
+                    .padding(.vertical, 13)
+                    .background(Capsule().fill(Palette.accentLinear))
+                    .shadow(color: Palette.accent.opacity(0.5), radius: 16, y: 3)
+            }
+            .buttonStyle(.plain)
+            .padding(.top, 4)
+        }
+        .padding(40)
+    }
+
+    // MARK: - Scanning (live discovery)
+
+    private var scanningView: some View {
+        VStack(spacing: 20) {
+            ReclaimGauge(bytes: model.scannedBytes, scanning: true, done: false)
+
+            VStack(spacing: 4) {
+                Text(model.currentLocation.isEmpty ? "Scanning…" : "Scanning \(model.currentLocation)…")
+                    .font(.headline)
+                    .foregroundStyle(Palette.ink)
+                    .contentTransition(.opacity)
+                Text("\(model.foundCount) items found")
+                    .font(.callout).monospacedDigit()
+                    .foregroundStyle(Palette.muted)
+            }
+
+            VStack(spacing: 5) {
+                ForEach(model.recentFinds.reversed()) { item in
+                    HStack(spacing: 8) {
+                        Image(systemName: "doc.fill")
+                            .font(.system(size: 10))
+                            .foregroundStyle(Palette.accent.opacity(0.8))
+                        Text(item.url.lastPathComponent)
+                            .foregroundStyle(Palette.ink2)
+                            .lineLimit(1)
+                        Spacer()
+                        Text(ByteFormat.human(item.sizeBytes))
+                            .foregroundStyle(Palette.muted)
+                            .monospacedDigit()
+                    }
+                    .font(.caption)
+                    .transition(.opacity.combined(with: .move(edge: .bottom)))
+                }
+            }
+            .frame(width: 440, height: 120, alignment: .top)
+            .animation(.snappy, value: model.recentFinds)
+        }
+        .padding(.top, 10)
+    }
+
+    // MARK: - Cleaning
+
+    private var cleaningView: some View {
         VStack(spacing: 16) {
             ReclaimGauge(bytes: model.selectedBytes, scanning: true, done: false)
-            Text(model.phase == .cleaning ? "Moving to Trash…" : "Scanning your Mac…")
-                .foregroundStyle(Palette.muted)
+            Text("Moving to Trash…").foregroundStyle(Palette.muted)
         }
     }
 

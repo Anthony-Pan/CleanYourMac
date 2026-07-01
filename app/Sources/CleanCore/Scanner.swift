@@ -17,50 +17,84 @@ public struct Scanner {
     }
 
     public func scan(category: CleanupCategory, now: Date = Date()) -> ScanResultGroup {
-        let fm = FileManager.default
-        var items: [ScanItem] = []
-
-        for target in category.targets {
-            let base = Self.expand(target.path)
-            var isDir: ObjCBool = false
-            guard fm.fileExists(atPath: base.path, isDirectory: &isDir), isDir.boolValue else { continue }
-
-            let children = (try? fm.contentsOfDirectory(
-                at: base,
-                includingPropertiesForKeys: [.contentModificationDateKey],
-                options: []
-            )) ?? []
-
-            for child in children {
-                // Scope filter.
-                if case .matching(let globs) = target.scope,
-                   !Self.matches(child.lastPathComponent, globs: globs) {
-                    continue
-                }
-
-                // SAFETY GATE: skip anything the policy refuses (outside allowed
-                // roots, protected, resolves through a symlink to elsewhere, ...).
-                if policy.validate(child) != nil { continue }
-
-                // Age filter.
-                let modDate = (try? child.resourceValues(forKeys: [.contentModificationDateKey]))?
-                    .contentModificationDate
-                if let minAge = target.minAgeDays, let modDate {
-                    let ageDays = now.timeIntervalSince(modDate) / 86_400
-                    if ageDays < Double(minAge) { continue }
-                }
-
-                let size = Self.allocatedSize(of: child)
-                items.append(ScanItem(
-                    url: child,
-                    categoryID: category.id,
-                    sizeBytes: size,
-                    modificationDate: modDate
-                ))
-            }
+        var result = ScanResultGroup(category: category, items: [])
+        scanIncremental(categories: [category], now: now) { event in
+            if case .categoryDone(let group) = event { result = group }
         }
+        return result
+    }
 
-        return ScanResultGroup(category: category, items: items)
+    /// Progress reported while an incremental scan runs.
+    public enum ScanEvent: Sendable {
+        /// Started scanning this category (its display name).
+        case location(String)
+        /// A reclaimable item was found and sized.
+        case item(ScanItem)
+        /// A category finished; its items (largest first).
+        case categoryDone(ScanResultGroup)
+    }
+
+    /// Scan each category, reporting progress as it goes so the UI can show the
+    /// discovery happening item by item instead of blocking on a spinner.
+    /// `onEvent` is called synchronously on the calling thread.
+    public func scanIncremental(
+        categories: [CleanupCategory],
+        now: Date = Date(),
+        onEvent: (ScanEvent) -> Void
+    ) {
+        let fm = FileManager.default
+
+        for category in categories {
+            onEvent(.location(category.nameEN))
+            var items: [ScanItem] = []
+
+            for target in category.targets {
+                let base = Self.expand(target.path)
+                var isDir: ObjCBool = false
+                guard fm.fileExists(atPath: base.path, isDirectory: &isDir), isDir.boolValue else { continue }
+
+                let children = (try? fm.contentsOfDirectory(
+                    at: base,
+                    includingPropertiesForKeys: [.contentModificationDateKey],
+                    options: []
+                )) ?? []
+
+                for child in children {
+                    // Scope filter.
+                    if case .matching(let globs) = target.scope,
+                       !Self.matches(child.lastPathComponent, globs: globs) {
+                        continue
+                    }
+
+                    // SAFETY GATE: skip anything the policy refuses (outside allowed
+                    // roots, protected, resolves through a symlink to elsewhere, ...).
+                    if policy.validate(child) != nil { continue }
+
+                    // Age filter.
+                    let modDate = (try? child.resourceValues(forKeys: [.contentModificationDateKey]))?
+                        .contentModificationDate
+                    if let minAge = target.minAgeDays, let modDate {
+                        let ageDays = now.timeIntervalSince(modDate) / 86_400
+                        if ageDays < Double(minAge) { continue }
+                    }
+
+                    let size = Self.allocatedSize(of: child)
+                    let item = ScanItem(
+                        url: child,
+                        categoryID: category.id,
+                        sizeBytes: size,
+                        modificationDate: modDate
+                    )
+                    items.append(item)
+                    onEvent(.item(item))
+                }
+            }
+
+            onEvent(.categoryDone(ScanResultGroup(
+                category: category,
+                items: items.sorted { $0.sizeBytes > $1.sizeBytes }
+            )))
+        }
     }
 
     // MARK: - Helpers

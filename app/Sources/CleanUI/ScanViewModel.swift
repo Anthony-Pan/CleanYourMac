@@ -23,6 +23,13 @@ final class ScanViewModel {
     var expandedCategories: Set<String> = []
     private(set) var lastReport: CleanReport?
 
+    // Live progress shown while scanning.
+    private(set) var currentLocation: String = ""
+    private(set) var scannedBytes: Int64 = 0
+    private(set) var foundCount: Int = 0
+    /// The most recently found items, for the live discovery feed.
+    private(set) var recentFinds: [ScanItem] = []
+
     private let categories = CleanupCategory.mvpUserSafe
     private let safetyPolicy = SafetyPolicy.policy(for: CleanupCategory.mvpUserSafe)
 
@@ -95,21 +102,44 @@ final class ScanViewModel {
 
     func scan() async {
         phase = .scanning
+        groups = []
+        selectedItems = []
+        expandedCategories = []
+        lastReport = nil
+        currentLocation = ""
+        scannedBytes = 0
+        foundCount = 0
+        recentFinds = []
+
         let cats = categories
         let policy = safetyPolicy
 
-        let found = await Task.detached(priority: .userInitiated) {
-            Scanner(policy: policy).scan(categories: cats)
-        }.value
+        // Run the scan off the main actor, streaming each event back to update
+        // the UI as files are discovered.
+        let stream = AsyncStream<CleanCore.Scanner.ScanEvent> { continuation in
+            Task.detached(priority: .userInitiated) {
+                CleanCore.Scanner(policy: policy).scanIncremental(categories: cats) { continuation.yield($0) }
+                continuation.finish()
+            }
+        }
 
-        // Keep only non-empty categories; show biggest items first.
-        groups = found
-            .filter { !$0.items.isEmpty }
-            .map { ScanResultGroup(category: $0.category,
-                                   items: $0.items.sorted { $0.sizeBytes > $1.sizeBytes }) }
-        selectedItems = Set(groups.flatMap { $0.items.map(\.id) })
-        expandedCategories = []
-        lastReport = nil
+        for await event in stream {
+            switch event {
+            case .location(let label):
+                currentLocation = label
+            case .item(let item):
+                scannedBytes += item.sizeBytes
+                foundCount += 1
+                recentFinds.append(item)
+                if recentFinds.count > 5 { recentFinds.removeFirst(recentFinds.count - 5) }
+            case .categoryDone(let group):
+                if !group.items.isEmpty {
+                    groups.append(group)
+                    selectedItems.formUnion(group.items.map(\.id))
+                }
+            }
+        }
+
         phase = .results
     }
 
