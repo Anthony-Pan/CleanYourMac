@@ -91,8 +91,14 @@ public struct UninstallPolicy: Sendable {
     /// daemon, privileged-helper and pkg-receipt location — those require root
     /// and are out of scope for a user-safe uninstaller.
     public static var defaultLeftoverRoots: [URL] {
-        let lib = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library")
-        return [
+        leftoverRoots(under: FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library"))
+    }
+
+    /// The leftover roots rebased under an arbitrary `~/Library`-shaped
+    /// directory. Shared by the production default and by tests so the two can
+    /// never drift apart.
+    public static func leftoverRoots(under library: URL) -> [URL] {
+        [
             "Application Support",
             "Caches",
             "Preferences",
@@ -107,6 +113,6 @@ public struct UninstallPolicy: Sendable {
             "Cookies",
             "LaunchAgents",
             "Application Scripts",
-        ].map { lib.appendingPathComponent($0) }
+        ].map { library.appendingPathComponent($0) }
     }
 }

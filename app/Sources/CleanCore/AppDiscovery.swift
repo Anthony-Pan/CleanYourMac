@@ -73,6 +73,34 @@ public struct AppDiscovery {
         return obj as? [String: Any]
     }
 
+    /// Bundle identifiers of the extensions / helpers embedded *inside* an app
+    /// bundle (app extensions, XPC services, bundled login-item apps). Used to
+    /// tell a genuine `com.foo.Bar.ShareExtension` leftover apart from an
+    /// independently-installed app that merely shares the id namespace
+    /// (e.g. `com.google.Chrome` vs `com.google.Chrome.canary`).
+    static func embeddedBundleIDs(of appURL: URL) -> Set<String> {
+        let fm = FileManager.default
+        let containers = [
+            "Contents/PlugIns",
+            "Contents/Extensions",
+            "Contents/XPCServices",
+            "Contents/Library/LoginItems",
+            "Contents/Library/LaunchServices",
+        ]
+        var ids = Set<String>()
+        for container in containers {
+            let dir = appURL.appendingPathComponent(container)
+            let children = (try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil, options: [])) ?? []
+            for child in children {
+                // Each child is itself a bundle (.appex/.xpc/.app) with an Info.plist.
+                if let id = (infoDictionary(at: child)?["CFBundleIdentifier"] as? String)?.cleaned?.lowercased() {
+                    ids.insert(id)
+                }
+            }
+        }
+        return ids
+    }
+
     /// An app is "system" (never uninstallable) if its bundle ID is Apple's, or
     /// it resolves to somewhere under `/System` (defense in depth — we do not
     /// scan there, but a symlink could point in).

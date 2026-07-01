@@ -8,8 +8,8 @@ touches an allowlist of reclaimable locations, moves items to the **Trash**
 
 | Target | What it is |
 |---|---|
-| `CleanCore` | The cleanup engine (SafetyPolicy, Scanner, Cleaner, Categories). Pure logic, fully unit-tested. |
-| `CleanUI` | SwiftUI views (sidebar, reclaim gauge, category cards). |
+| `CleanCore` | The cleanup engine (SafetyPolicy, Scanner, Cleaner, Categories) plus the uninstaller engine (UninstallPolicy, AppDiscovery, AppUninstaller). Pure logic, fully unit-tested. |
+| `CleanUI` | SwiftUI views (sidebar, reclaim gauge, category cards, uninstaller). |
 | `CleanYourMacApp` | The app entry point (`@main`). |
 | `smartclean` | CLI front end for the engine. |
 | `snapshot` | Off-screen renderer for design previews and the app icon. |
@@ -22,6 +22,8 @@ swift run CleanYourMacApp     # launch the app (scans your real Mac)
 swift run smartclean          # CLI: read-only scan
 swift run smartclean --dry-run
 swift run smartclean --clean  # move reclaimable items to Trash
+swift run smartclean apps          # CLI: list removable apps (read-only)
+swift run smartclean apps <name>   # CLI: preview an app's uninstall plan
 swift run snapshot            # write a design preview PNG to /tmp
 ```
 
@@ -54,3 +56,14 @@ security find-identity -v -p codesigning
 7. **Real dry-run** — preview mode touches nothing.
 
 Each rule is covered by a test in `Tests/CleanCoreTests/`.
+
+## Uninstaller
+
+Removes an app together with the leftover files it leaves behind, keyed by the
+app's bundle identifier. It reuses the same safety spine (`UninstallPolicy`):
+
+1. **App allowlist** — only `.app` bundles inside `/Applications`, `/Applications/Utilities` and `~/Applications` are removable.
+2. **Leftover allowlist** — associated files are only ever removed from a fixed set of `~/Library` subdirectories (Application Support, Caches, Preferences, Containers, Group Containers, Saved Application State, Logs, HTTPStorages, WebKit, Cookies, LaunchAgents, Application Scripts). Nothing under `/Library`, `/private/var` or any root-owned location is touched.
+3. **Confidence** — bundle-id matches (e.g. `com.foo.Bar`) are exact and auto-selected; app-name and Group-Container matches are heuristic, flagged for review, and **off by default**.
+4. **Never** — Apple / system apps (`com.apple.*`, `/System`), the app's own bundle, whole well-known directories, and anything that resolves (via symlink) outside the allowed roots.
+5. **Trash, not delete**, and every path is re-validated immediately before disposal — same as Smart Scan.

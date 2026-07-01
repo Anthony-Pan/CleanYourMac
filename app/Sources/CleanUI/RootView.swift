@@ -21,7 +21,7 @@ enum AppSection: String, CaseIterable, Identifiable {
         case .privacy: return "hand.raised"
         }
     }
-    var isLive: Bool { self == .smartScan }
+    var isLive: Bool { self == .smartScan || self == .uninstaller }
 }
 
 /// Top-level shell: a fully custom dark sidebar + the active section. No
@@ -40,6 +40,8 @@ public struct RootView: View {
                 switch selection {
                 case .smartScan:
                     SmartScanView()
+                case .uninstaller:
+                    UninstallerView()
                 default:
                     ComingSoonView(title: selection.title, symbol: selection.symbol)
                 }
