@@ -18,7 +18,9 @@ struct PrivacyView: View {
             StageBackground(glow: busy)
 
             switch model.phase {
-            case .idle, .scanning, .cleaning:
+            case .idle:
+                idleView
+            case .scanning, .cleaning:
                 busyView
             case .done:
                 doneView
@@ -27,7 +29,47 @@ struct PrivacyView: View {
             }
         }
         .navigationTitle("Privacy")
-        .task { if model.phase == .idle { await model.scan() } }
+    }
+
+    // MARK: - Idle (start screen with a Scan button)
+
+    private var idleView: some View {
+        VStack(spacing: 22) {
+            ZStack {
+                Circle().stroke(.white.opacity(0.08), lineWidth: 15)
+                Circle()
+                    .fill(RadialGradient(colors: [Palette.accent.opacity(0.18), .clear],
+                                         center: .center, startRadius: 20, endRadius: 130))
+                Image(systemName: "hand.raised.fill")
+                    .font(.system(size: 52))
+                    .foregroundStyle(Palette.accent)
+            }
+            .frame(width: 214, height: 214)
+
+            VStack(spacing: 6) {
+                Text("Privacy")
+                    .font(.system(size: 28, weight: .bold))
+                    .foregroundStyle(Palette.ink)
+                Text("Clear caches, history and cookies left behind by your browsers.")
+                    .font(.callout)
+                    .foregroundStyle(Palette.muted)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 340)
+            }
+
+            Button { Task { await model.scan() } } label: {
+                Label("Scan", systemImage: "magnifyingglass")
+                    .font(.headline)
+                    .foregroundStyle(Color.black.opacity(0.85))
+                    .padding(.horizontal, 40)
+                    .padding(.vertical, 13)
+                    .background(Capsule().fill(Palette.accentLinear))
+                    .shadow(color: Palette.accent.opacity(0.5), radius: 16, y: 3)
+            }
+            .buttonStyle(.plain)
+            .padding(.top, 4)
+        }
+        .padding(40)
     }
 
     // MARK: - Busy
@@ -181,10 +223,8 @@ private struct PrivacyGroupCard: View {
 
     private var header: some View {
         HStack(spacing: 12) {
-            Image(systemName: group.app.symbol)
-                .font(.system(size: 20))
-                .foregroundStyle(Palette.accent)
-                .frame(width: 32)
+            BrowserIconView(app: group.app)
+                .frame(width: 30, height: 30)
 
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 7) {
@@ -298,5 +338,44 @@ private struct Badge: View {
             .foregroundStyle(color)
             .padding(.horizontal, 6).padding(.vertical, 2)
             .background(Capsule().fill(color.opacity(0.15)))
+    }
+}
+
+// MARK: - Real browser icon (falls back to an SF Symbol if not installed)
+
+private struct BrowserIconView: View {
+    let app: PrivacyApp
+    var body: some View {
+        if let image = BrowserIcon.image(for: app) {
+            Image(nsImage: image)
+                .resizable()
+                .interpolation(.high)
+                .aspectRatio(contentMode: .fit)
+        } else {
+            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                .fill(Palette.accent.opacity(0.15))
+                .overlay(Image(systemName: app.symbol)
+                    .font(.system(size: 16))
+                    .foregroundStyle(Palette.accent))
+        }
+    }
+}
+
+private enum BrowserIcon {
+    private static let cache = NSCache<NSString, NSImage>()
+
+    /// The installed browser's Finder icon, resolved from its bundle id and
+    /// cached. `nil` when the browser can't be located.
+    static func image(for app: PrivacyApp) -> NSImage? {
+        let key = app.rawValue as NSString
+        if let cached = cache.object(forKey: key) { return cached }
+        let ws = NSWorkspace.shared
+        let url = app.bundleIDs.lazy
+            .compactMap { ws.urlForApplication(withBundleIdentifier: $0) }
+            .first
+        guard let url else { return nil }
+        let icon = ws.icon(forFile: url.path)
+        cache.setObject(icon, forKey: key)
+        return icon
     }
 }
