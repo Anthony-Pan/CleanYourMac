@@ -63,7 +63,7 @@ struct SmartScanView: View {
                     .frame(maxWidth: 340)
             }
 
-            Button { Task { await model.scan() } } label: {
+            Button { model.startScan() } label: {
                 Label("Scan", systemImage: "sparkles")
                     .font(.headline)
                     .foregroundStyle(Color.black.opacity(0.85))
@@ -114,6 +114,15 @@ struct SmartScanView: View {
             }
             .frame(width: 440, height: 120, alignment: .top)
             .animation(.snappy, value: model.recentFinds)
+
+            Button { model.cancelScan() } label: {
+                Label("Stop", systemImage: "stop.fill")
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(Palette.ink2)
+                    .padding(.horizontal, 22).padding(.vertical, 9)
+                    .background(Capsule().strokeBorder(.white.opacity(0.22), lineWidth: 1))
+            }
+            .buttonStyle(.plain)
         }
         .padding(.top, 10)
     }
@@ -140,7 +149,7 @@ struct SmartScanView: View {
                 .foregroundStyle(Palette.ink)
             Text("Freed \(ByteFormat.human(model.lastReport?.freedBytes ?? 0)) · moved \(model.lastReport?.trashed.count ?? 0) items to Trash")
                 .foregroundStyle(Palette.muted)
-            Button("Scan Again") { Task { await model.scan() } }
+            Button("Scan Again") { model.startScan() }
                 .controlSize(.large)
                 .tint(Palette.accent)
                 .padding(.top, 6)

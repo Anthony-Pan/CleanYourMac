@@ -103,7 +103,20 @@ final class ScanViewModel {
 
     // MARK: - Scan / clean
 
-    func scan() async {
+    private var scanTask: Task<Void, Never>?
+
+    /// Begin (or restart) a scan. Held as a task so it can be stopped.
+    func startScan() {
+        scanTask?.cancel()
+        scanTask = Task { await runScan() }
+    }
+
+    /// Stop an in-progress scan. Whatever was found so far is kept.
+    func cancelScan() {
+        scanTask?.cancel()
+    }
+
+    private func runScan() async {
         phase = .scanning
         groups = []
         selectedItems = []
@@ -119,15 +132,21 @@ final class ScanViewModel {
         let policy = safetyPolicy
 
         // Run the scan off the main actor, streaming each event back to update
-        // the UI as files are discovered.
+        // the UI as files are discovered. Cancelling this task stops the
+        // producer via `onTermination`.
         let stream = AsyncStream<CleanCore.Scanner.ScanEvent> { continuation in
-            Task.detached(priority: .userInitiated) {
-                CleanCore.Scanner(policy: policy).scanIncremental(categories: cats) { continuation.yield($0) }
+            let producer = Task.detached(priority: .userInitiated) {
+                CleanCore.Scanner(policy: policy).scanIncremental(categories: cats) { event in
+                    if Task.isCancelled { return }
+                    continuation.yield(event)
+                }
                 continuation.finish()
             }
+            continuation.onTermination = { _ in producer.cancel() }
         }
 
         for await event in stream {
+            if Task.isCancelled { break }
             switch event {
             case .location(let label):
                 currentLocation = label
@@ -144,7 +163,12 @@ final class ScanViewModel {
             }
         }
 
-        phase = .results
+        if Task.isCancelled {
+            // Stopped early: show what was found so far, or the start screen.
+            phase = groups.isEmpty ? .idle : .results
+        } else {
+            phase = .results
+        }
     }
 
     func clean() async {
