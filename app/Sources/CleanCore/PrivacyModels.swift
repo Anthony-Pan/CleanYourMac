@@ -32,12 +32,12 @@ public enum PrivacyApp: String, Sendable, CaseIterable, Identifiable {
     /// (so the UI can ask the user to quit it before clearing locked files).
     public var bundleIDs: [String] {
         switch self {
-        case .safari:  return ["com.apple.Safari"]
-        case .chrome:  return ["com.google.Chrome", "com.google.Chrome.beta", "com.google.Chrome.canary"]
-        case .edge:    return ["com.microsoft.edgemac"]
-        case .brave:   return ["com.brave.Browser"]
+        case .safari:  return ["com.apple.Safari", "com.apple.SafariTechnologyPreview"]
+        case .chrome:  return ["com.google.Chrome", "com.google.Chrome.beta", "com.google.Chrome.dev", "com.google.Chrome.canary"]
+        case .edge:    return ["com.microsoft.edgemac", "com.microsoft.edgemac.Beta", "com.microsoft.edgemac.Dev", "com.microsoft.edgemac.Canary"]
+        case .brave:   return ["com.brave.Browser", "com.brave.Browser.beta", "com.brave.Browser.nightly"]
         case .vivaldi: return ["com.vivaldi.Vivaldi"]
-        case .firefox: return ["org.mozilla.firefox"]
+        case .firefox: return ["org.mozilla.firefox", "org.mozilla.firefoxdeveloperedition", "org.mozilla.nightly"]
         }
     }
 }

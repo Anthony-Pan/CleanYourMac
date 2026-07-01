@@ -108,6 +108,47 @@ final class PrivacyScannerTests: XCTestCase {
         XCTAssertEqual(apps, [.chrome])
     }
 
+    func test_clearsSqliteSidecarsAlongsideTheDatabase() throws {
+        // History.db + its WAL/SHM sidecars must all be found and cleared, or the
+        // exact data the user asked to erase survives in the orphaned -wal file.
+        let profile = "Application Support/Google/Chrome/Default"
+        try makeFile("Caches/Google/Chrome/data")
+        try makeFile("\(profile)/History")
+        try makeFile("\(profile)/History-wal")
+        try makeFile("\(profile)/History-shm")
+        try makeFile("\(profile)/Network/Cookies")
+        try makeFile("\(profile)/Network/Cookies-wal")
+
+        let chrome = try XCTUnwrap(scanner().scan().first { $0.app == .chrome })
+        let names = Set(chrome.items.map { $0.url.lastPathComponent })
+        XCTAssertTrue(names.isSuperset(of: ["History", "History-wal", "History-shm", "Cookies", "Cookies-wal"]),
+                      "SQLite sidecars must be cleared together with the primary database")
+    }
+
+    func test_neverOffersPasswordsEvenIfPathTableWouldReachThem() throws {
+        // Defense in depth: even a file literally named like a password store,
+        // sitting in an otherwise-cleanable location, must never be offered.
+        let profile = "Application Support/Google/Chrome/Default"
+        try makeFile("\(profile)/History")
+        try makeFile("\(profile)/Login Data")
+        try makeFile("\(profile)/Web Data")
+
+        let chrome = try XCTUnwrap(scanner().scan().first { $0.app == .chrome })
+        let names = Set(chrome.items.map { $0.url.lastPathComponent })
+        XCTAssertTrue(names.contains("History"))
+        XCTAssertFalse(names.contains("Login Data"))
+        XCTAssertFalse(names.contains("Web Data"))
+    }
+
+    func test_allowedRootsNeverIncludeUserContentFolders() throws {
+        // The fixed allowlist must never reach the user's documents/desktop/etc.
+        let roots = scanner().allowedRoots().map { $0.path }
+        for forbidden in ["Documents", "Desktop", "Downloads", "Movies", "Pictures"] {
+            XCTAssertFalse(roots.contains { $0.hasSuffix("/\(forbidden)") },
+                           "allowedRoots must never include ~/\(forbidden)")
+        }
+    }
+
     // MARK: - Default selection semantics
 
     func test_cookiesAndSessionsAreOptInByDefault() throws {

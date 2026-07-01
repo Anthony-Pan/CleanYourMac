@@ -19,7 +19,10 @@ final class PrivacyViewModel {
     private(set) var lastReport: CleanReport?
 
     private let scanner = PrivacyScanner()
-    private let runningBundleIDs: Set<String>
+    /// Snapshot of which browsers are running. Refreshed on every scan (not just
+    /// at init) so the "quit the browser first" warning reflects reality when
+    /// the user actually presses Scan.
+    private var runningBundleIDs: Set<String>
 
     init() {
         runningBundleIDs = Set(NSWorkspace.shared.runningApplications.compactMap(\.bundleIdentifier))
@@ -53,6 +56,17 @@ final class PrivacyViewModel {
         !runningBundleIDs.isDisjoint(with: Set(app.bundleIDs))
     }
 
+    /// True if the current selection includes cookies (clearing them signs the
+    /// user out of websites) — surfaced in the final confirmation.
+    var selectedSignsOut: Bool {
+        groups.flatMap(\.items).contains { selected.contains($0.id) && $0.signsOut }
+    }
+
+    /// True if the current selection includes an open-tabs/session trace.
+    var selectedLosesTabs: Bool {
+        groups.flatMap(\.items).contains { selected.contains($0.id) && $0.kind == .sessions }
+    }
+
     // MARK: - Selection
 
     func isSelected(_ id: String) -> Bool { selected.contains(id) }
@@ -82,6 +96,9 @@ final class PrivacyViewModel {
         phase = .scanning
         selected = []
         lastReport = nil
+        // Re-read running apps now — the model outlives app launch, so a browser
+        // opened since then must still trigger its "quit first" warning.
+        runningBundleIDs = Set(NSWorkspace.shared.runningApplications.compactMap(\.bundleIdentifier))
         let engine = scanner
 
         let found = await Task.detached(priority: .userInitiated) { engine.scan() }.value

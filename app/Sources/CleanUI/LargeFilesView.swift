@@ -102,18 +102,21 @@ struct LargeFilesView: View {
     }
 
     private var filterBar: some View {
-        HStack(spacing: 10) {
-            SegmentedPicker(selection: $model.sizeFilter,
-                            options: LargeFilesViewModel.SizeFilter.allCases,
-                            label: \.label)
-            SegmentedPicker(selection: $model.ageFilter,
-                            options: LargeFilesViewModel.AgeFilter.allCases,
-                            label: \.label)
-            Spacer(minLength: 8)
-            typeMenu
-            sortMenu
+        // Horizontally scrollable so the four controls never clip at the
+        // minimum window width (they don't all fit on one line at 920pt).
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 10) {
+                SegmentedPicker(selection: $model.sizeFilter,
+                                options: LargeFilesViewModel.SizeFilter.allCases,
+                                label: \.label)
+                SegmentedPicker(selection: $model.ageFilter,
+                                options: LargeFilesViewModel.AgeFilter.allCases,
+                                label: \.label)
+                typeMenu
+                sortMenu
+            }
+            .padding(.horizontal, 22)
         }
-        .padding(.horizontal, 22)
         .padding(.bottom, 10)
     }
 
@@ -314,6 +317,8 @@ private struct LargeFileRow: View {
                     .foregroundStyle(selected ? Palette.accent : .white.opacity(0.28))
             }
             .buttonStyle(.plain)
+            .accessibilityLabel(file.name)
+            .accessibilityValue(selected ? "Selected for removal" : "Not selected")
 
             Image(systemName: file.kind.symbol)
                 .font(.system(size: 15))

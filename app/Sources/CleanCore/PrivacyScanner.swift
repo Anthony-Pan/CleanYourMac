@@ -75,13 +75,19 @@ public struct PrivacyScanner {
 
         var out: [PrivacyItem] = []
         add(&out, app, .caches, cache)
-        add(&out, app, .history, profile.appendingPathComponent("History"))
+
+        let history = profile.appendingPathComponent("History")
+        if add(&out, app, .history, history) { addSidecars(&out, app, .history, of: history) }
+
         // Newer Chromium keeps cookies under Default/Network; older builds under Default.
         let networkCookies = profile.appendingPathComponent("Network/Cookies")
         let legacyCookies = profile.appendingPathComponent("Cookies")
-        if !add(&out, app, .cookies, networkCookies) {
-            add(&out, app, .cookies, legacyCookies)
+        if add(&out, app, .cookies, networkCookies) {
+            addSidecars(&out, app, .cookies, of: networkCookies)
+        } else if add(&out, app, .cookies, legacyCookies) {
+            addSidecars(&out, app, .cookies, of: legacyCookies)
         }
+
         add(&out, app, .sessions, profile.appendingPathComponent("Sessions"))
         return out
     }
@@ -103,7 +109,8 @@ public struct PrivacyScanner {
             var isDir: ObjCBool = false
             guard fm.fileExists(atPath: profile.path, isDirectory: &isDir), isDir.boolValue else { continue }
             // History lives in places.sqlite alongside BOOKMARKS — never offered.
-            add(&out, .firefox, .cookies, profile.appendingPathComponent("cookies.sqlite"))
+            let cookies = profile.appendingPathComponent("cookies.sqlite")
+            if add(&out, .firefox, .cookies, cookies) { addSidecars(&out, .firefox, .cookies, of: cookies) }
             add(&out, .firefox, .sessions, profile.appendingPathComponent("sessionstore.jsonlz4"))
             add(&out, .firefox, .sessions, profile.appendingPathComponent("sessionstore-backups"))
         }
@@ -116,22 +123,57 @@ public struct PrivacyScanner {
         let safari = libraryURL.appendingPathComponent("Safari")
         var out: [PrivacyItem] = []
         add(&out, .safari, .caches, libraryURL.appendingPathComponent("Caches/com.apple.Safari"))
-        add(&out, .safari, .history, safari.appendingPathComponent("History.db"))
+        let history = safari.appendingPathComponent("History.db")
+        if add(&out, .safari, .history, history) { addSidecars(&out, .safari, .history, of: history) }
         add(&out, .safari, .downloads, safari.appendingPathComponent("Downloads.plist"))
         return out
     }
 
-    // MARK: - Helper
+    // MARK: - Helpers
 
-    /// Append a `PrivacyItem` if `url` exists and has non-zero size. Returns
-    /// whether an item was added (used to pick the first of alternative paths).
+    /// File names that must NEVER be offered, matched case-insensitively. These
+    /// hold the user's own content — saved passwords, autofill/cards, and
+    /// bookmarks (including the Firefox `places.sqlite` that stores history *and*
+    /// bookmarks together). Defense in depth: the search tables above already
+    /// avoid these paths, but this guard guarantees that even a future edit to
+    /// those tables can never turn one of them into a removable item.
+    private static let neverRemoveBasenames: Set<String> = [
+        // Saved passwords / credentials.
+        "login data", "login data-journal",
+        "login data for account", "login data for account-journal",
+        "logins.json", "logins-backup.json", "key3.db", "key4.db",
+        // Autofill, payment cards, and other saved form data.
+        "web data", "web data-journal",
+        // Bookmarks, and the Firefox DB that also stores them alongside history.
+        "bookmarks", "bookmarks.bak",
+        "places.sqlite", "places.sqlite-wal", "places.sqlite-shm",
+    ]
+
+    /// Append a `PrivacyItem` if `url` exists, has non-zero size, and is not on
+    /// the never-remove list. Returns whether an item was added (used to pick
+    /// the first of alternative paths).
     @discardableResult
     private func add(_ out: inout [PrivacyItem], _ app: PrivacyApp, _ kind: PrivacyItemKind, _ url: URL) -> Bool {
+        guard !Self.neverRemoveBasenames.contains(url.lastPathComponent.lowercased()) else { return false }
         guard FileManager.default.fileExists(atPath: url.path) else { return false }
         let size = Scanner.allocatedSize(of: url)
         guard size > 0 else { return false }
         out.append(PrivacyItem(app: app, kind: kind, url: url, sizeBytes: size))
         return true
+    }
+
+    /// SQLite databases run in WAL mode, so on disk each is the primary file plus
+    /// `-wal`/`-shm` (and occasionally `-journal`) sidecars holding rows not yet
+    /// checkpointed into the main file. Clearing only the primary file would
+    /// leave recent history/cookies readable in the orphaned sidecar — the exact
+    /// data the user asked to erase — so we clear them together. Each sidecar
+    /// sits beside its database inside an already-allowed root.
+    private func addSidecars(_ out: inout [PrivacyItem], _ app: PrivacyApp, _ kind: PrivacyItemKind, of dbURL: URL) {
+        let dir = dbURL.deletingLastPathComponent()
+        let base = dbURL.lastPathComponent
+        for suffix in ["-wal", "-shm", "-journal"] {
+            add(&out, app, kind, dir.appendingPathComponent(base + suffix))
+        }
     }
 
     // MARK: - Removal

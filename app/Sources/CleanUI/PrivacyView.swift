@@ -175,8 +175,19 @@ struct PrivacyView: View {
             Button("Move to Trash") { Task { await model.clean() } }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("Nothing is deleted permanently — you can restore everything from the Trash. Quit your browsers first so their files aren’t rewritten.")
+            Text(confirmMessage)
         }
+    }
+
+    /// The confirmation body, spelling out the disruptive consequences of the
+    /// *specific* selection (sign-outs, lost tabs) at the last, riskiest step —
+    /// not just at the checkbox.
+    private var confirmMessage: String {
+        var parts = ["Nothing is deleted permanently — you can restore everything from the Trash."]
+        if model.selectedSignsOut { parts.append("Clearing cookies will sign you out of websites.") }
+        if model.selectedLosesTabs { parts.append("Clearing sessions will forget your open tabs.") }
+        parts.append("Quit your browsers first so their files aren’t rewritten.")
+        return parts.joined(separator: " ")
     }
 
     private var emptyState: some View {
@@ -284,6 +295,8 @@ private struct PrivacyItemRow: View {
                     .foregroundStyle(selected ? Palette.accent : .white.opacity(0.28))
             }
             .buttonStyle(.plain)
+            .accessibilityLabel(item.kind.titleEN)
+            .accessibilityValue(selected ? "Selected" : "Not selected")
 
             Image(systemName: item.kind.symbol)
                 .font(.system(size: 14))
