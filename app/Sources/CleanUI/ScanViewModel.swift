@@ -21,6 +21,9 @@ final class ScanViewModel {
     private(set) var selectedItems: Set<String> = []
     /// Category IDs whose detail list is expanded.
     var expandedCategories: Set<String> = []
+    /// The category whose detail screen is currently open (kept in the model so
+    /// it survives sidebar switches).
+    var openedCategoryID: String?
     private(set) var lastReport: CleanReport?
 
     // Live progress shown while scanning.
@@ -105,6 +108,7 @@ final class ScanViewModel {
         groups = []
         selectedItems = []
         expandedCategories = []
+        openedCategoryID = nil
         lastReport = nil
         currentLocation = ""
         scannedBytes = 0

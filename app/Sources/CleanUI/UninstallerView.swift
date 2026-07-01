@@ -5,7 +5,9 @@ import CleanCore
 /// The Uninstaller screen: discover installed apps, review each app's bundle
 /// plus its attributed leftover files, and move the selected items to the Trash.
 struct UninstallerView: View {
-    @State private var model = UninstallViewModel()
+    @Bindable var model: UninstallViewModel
+
+    init(model: UninstallViewModel) { self.model = model }
 
     var body: some View {
         ZStack {

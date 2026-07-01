@@ -2,9 +2,10 @@ import SwiftUI
 import CleanCore
 
 struct SmartScanView: View {
-    @State private var model = ScanViewModel()
-    @State private var openedID: String?
+    let model: ScanViewModel
     @State private var showConfirm = false
+
+    init(model: ScanViewModel) { self.model = model }
 
     private var scanning: Bool { model.phase == .scanning || model.phase == .cleaning }
 
@@ -22,9 +23,9 @@ struct SmartScanView: View {
             case .done:
                 doneView
             case .results:
-                if let id = openedID, let group = model.groups.first(where: { $0.id == id }) {
+                if let id = model.openedCategoryID, let group = model.groups.first(where: { $0.id == id }) {
                     CategoryDetailView(group: group, model: model) {
-                        withAnimation(.snappy) { openedID = nil }
+                        withAnimation(.snappy) { model.openedCategoryID = nil }
                     }
                     .transition(.move(edge: .trailing).combined(with: .opacity))
                 } else {
@@ -169,7 +170,7 @@ struct SmartScanView: View {
                 LazyVGrid(columns: [GridItem(.flexible(), spacing: 16), GridItem(.flexible(), spacing: 16)], spacing: 16) {
                     ForEach(model.groups) { group in
                         CategoryGridCard(group: group, model: model) {
-                            withAnimation(.snappy) { openedID = group.id }
+                            withAnimation(.snappy) { model.openedCategoryID = group.id }
                         }
                     }
                 }

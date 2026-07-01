@@ -21,7 +21,7 @@ enum AppSection: String, CaseIterable, Identifiable {
         case .privacy: return "hand.raised"
         }
     }
-    var isLive: Bool { self == .smartScan || self == .uninstaller || self == .largeFiles }
+    var isLive: Bool { true }
 }
 
 /// Top-level shell: a fully custom dark sidebar + the active section. No
@@ -31,6 +31,10 @@ public struct RootView: View {
     public init() {}
 
     @State private var selection: AppSection = .smartScan
+    // Owned here so their state (scan results, discovered apps) survives sidebar
+    // switches instead of being thrown away each time the view is recreated.
+    @State private var scanModel = ScanViewModel()
+    @State private var uninstallModel = UninstallViewModel()
 
     public var body: some View {
         HStack(spacing: 0) {
@@ -39,13 +43,13 @@ public struct RootView: View {
             ZStack {
                 switch selection {
                 case .smartScan:
-                    SmartScanView()
+                    SmartScanView(model: scanModel)
                 case .uninstaller:
-                    UninstallerView()
+                    UninstallerView(model: uninstallModel)
                 case .largeFiles:
                     LargeFilesView()
-                default:
-                    ComingSoonView(title: selection.title, symbol: selection.symbol)
+                case .privacy:
+                    PrivacyView()
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
