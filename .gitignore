@@ -1,0 +1,8 @@
+.claude
+.DS_Store
+
+# Swift / SwiftPM build artifacts
+app/.build/
+app/dist/
+.swiftpm/
+*.xcodeproj
