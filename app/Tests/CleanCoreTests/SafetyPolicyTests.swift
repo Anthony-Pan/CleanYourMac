@@ -1,0 +1,77 @@
+import XCTest
+@testable import CleanCore
+
+/// Proves the gatekeeper refuses every dangerous path we can think of.
+final class SafetyPolicyTests: XCTestCase {
+    var sandbox: URL!
+    var caches: URL!
+    let fm = FileManager.default
+
+    override func setUpWithError() throws {
+        sandbox = URL(fileURLWithPath: NSTemporaryDirectory())
+            .appendingPathComponent("cym-\(UUID().uuidString)")
+        caches = sandbox.appendingPathComponent("Caches")
+        try fm.createDirectory(at: caches, withIntermediateDirectories: true)
+    }
+
+    override func tearDownWithError() throws {
+        try? fm.removeItem(at: sandbox)
+    }
+
+    private func policy() -> SafetyPolicy {
+        SafetyPolicy(allowedRoots: [caches])   // uses default protected paths
+    }
+
+    func test_acceptsItemStrictlyInsideAllowedRoot() throws {
+        let item = caches.appendingPathComponent("SomeApp")
+        try fm.createDirectory(at: item, withIntermediateDirectories: true)
+        XCTAssertNil(policy().validate(item), "an item inside the cleanable root must be allowed")
+    }
+
+    func test_rejectsTheAllowedRootItself() {
+        // We clean *contents*, never the root directory.
+        XCTAssertEqual(policy().validate(caches)?.reason, .isAllowedRootItself)
+    }
+
+    func test_rejectsFilesystemRootAndShallowPaths() {
+        XCTAssertEqual(policy().validate(URL(fileURLWithPath: "/"))?.reason, .tooShallow)
+        XCTAssertEqual(policy().validate(URL(fileURLWithPath: "/Users"))?.reason, .tooShallow)
+        XCTAssertEqual(policy().validate(URL(fileURLWithPath: "/Users/somebody"))?.reason, .tooShallow)
+    }
+
+    func test_rejectsPathsOutsideAllowedRoots() throws {
+        let outside = sandbox.appendingPathComponent("Documents/secret.txt")
+        try fm.createDirectory(at: outside.deletingLastPathComponent(), withIntermediateDirectories: true)
+        XCTAssertTrue(fm.createFile(atPath: outside.path, contents: Data("keep".utf8)))
+        XCTAssertEqual(policy().validate(outside)?.reason, .outsideAllowedRoots)
+    }
+
+    func test_rejectsSymlinkThatEscapesTheAllowedRoot() throws {
+        // A symlink that lives *inside* Caches but points *outside* must be refused.
+        let secret = sandbox.appendingPathComponent("Secret")
+        try fm.createDirectory(at: secret, withIntermediateDirectories: true)
+        let link = caches.appendingPathComponent("escape")
+        try fm.createSymbolicLink(at: link, withDestinationURL: secret)
+        XCTAssertEqual(policy().validate(link)?.reason, .outsideAllowedRoots)
+    }
+
+    func test_rejectsProtectedPathAndItsAncestors() throws {
+        let keep = caches.appendingPathComponent("keep")
+        try fm.createDirectory(at: keep, withIntermediateDirectories: true)
+        let deeper = keep.appendingPathComponent("child")
+        let p = SafetyPolicy(allowedRoots: [caches], protectedPaths: [keep])
+        XCTAssertEqual(p.validate(keep)?.reason, .protectedPath, "the protected path itself is refused")
+        XCTAssertNil(p.validate(deeper), "a descendant of a protected path is still cleanable")
+    }
+
+    func test_defaultProtectedPathsCoverHomeAndSystemRoots() {
+        let home = fm.homeDirectoryForCurrentUser
+        // Deleting the real home or its top-level personal folders must never be allowed,
+        // even if they were (mistakenly) declared as an allowed root.
+        let reckless = SafetyPolicy(allowedRoots: [home])
+        XCTAssertNotNil(reckless.validate(home.appendingPathComponent("Documents")),
+                        "~/Documents must be refused")
+        XCTAssertNotNil(reckless.validate(home.appendingPathComponent("Desktop")),
+                        "~/Desktop must be refused")
+    }
+}
