@@ -13,7 +13,11 @@ let package = Package(
     ],
     targets: [
         .target(name: "CleanCore"),
-        .target(name: "CleanUI", dependencies: ["CleanCore"]),
+        .target(
+            name: "CleanUI",
+            dependencies: ["CleanCore"],
+            resources: [.copy("Resources/IconArt.png")]
+        ),
         .executableTarget(name: "smartclean", dependencies: ["CleanCore"]),
         .executableTarget(name: "CleanYourMacApp", dependencies: ["CleanUI"]),
         .executableTarget(name: "snapshot", dependencies: ["CleanUI"]),
