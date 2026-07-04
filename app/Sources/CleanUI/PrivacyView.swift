@@ -2,21 +2,21 @@ import SwiftUI
 import AppKit
 import CleanCore
 
-/// The Privacy screen: find browser traces (caches, history, cookies, sessions,
-/// download lists) and move the selected ones to the Trash. Disruptive traces
-/// (cookies, open tabs) are opt-in and clearly labelled.
+/// The Privacy screen: find browser traces and macOS recent-item lists (caches,
+/// history, cookies, sessions, download lists, site data, recents) and move the
+/// selected ones to the Trash. Disruptive traces (cookies, site data, open tabs)
+/// are opt-in and clearly labelled.
 struct PrivacyView: View {
     let model: PrivacyViewModel
     @State private var showConfirm = false
+    @State private var fdaBannerDismissed = false
+
+    private static let theme: ModuleTheme = .blue
 
     init(model: PrivacyViewModel) { self.model = model }
 
-    private var busy: Bool { model.phase == .scanning || model.phase == .cleaning }
-
     var body: some View {
-        ZStack {
-            StageBackground(glow: busy)
-
+        Group {
             switch model.phase {
             case .idle:
                 idleView
@@ -29,84 +29,104 @@ struct PrivacyView: View {
             }
         }
         .navigationTitle("Privacy")
+        .onChange(of: model.phase) { _, newPhase in
+            // Reset the FDA banner dismissal when a new scan starts so the user
+            // sees a fresh prompt if FDA is still missing after re-scanning.
+            if newPhase == .scanning { fdaBannerDismissed = false }
+        }
     }
 
     // MARK: - Idle (start screen with a Scan button)
 
     private var idleView: some View {
-        VStack(spacing: 22) {
-            ZStack {
-                Circle().stroke(.white.opacity(0.08), lineWidth: 15)
-                Circle()
-                    .fill(RadialGradient(colors: [Palette.accent.opacity(0.18), .clear],
-                                         center: .center, startRadius: 20, endRadius: 130))
-                Image(systemName: "hand.raised.fill")
-                    .font(.system(size: 52))
-                    .foregroundStyle(Palette.accent)
-            }
-            .frame(width: 214, height: 214)
+        VStack(spacing: 0) {
+            Spacer()
 
-            VStack(spacing: 6) {
-                Text("Privacy")
-                    .font(.system(size: 28, weight: .bold))
-                    .foregroundStyle(Palette.ink)
-                Text("Clear caches, history and cookies left behind by your browsers.")
-                    .font(.callout)
-                    .foregroundStyle(Palette.muted)
-                    .multilineTextAlignment(.center)
-                    .frame(maxWidth: 340)
-            }
+            HeroBlob(theme: Self.theme, symbol: "hand.raised.fill")
 
-            Button { Task { await model.scan() } } label: {
-                Label("Scan", systemImage: "magnifyingglass")
-                    .font(.headline)
-                    .foregroundStyle(Color.black.opacity(0.85))
-                    .padding(.horizontal, 40)
-                    .padding(.vertical, 13)
-                    .background(Capsule().fill(Palette.accentLinear))
-                    .shadow(color: Palette.accent.opacity(0.5), radius: 16, y: 3)
+            Text("Privacy")
+                .font(.system(size: 34, weight: .bold))
+                .foregroundStyle(Palette.ink)
+                .padding(.top, 26)
+
+            Text("Clear caches, history, cookies and recent-item lists left behind by your browsers and macOS.")
+                .font(.system(size: 13))
+                .foregroundStyle(Palette.muted)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 380)
+                .padding(.top, 8)
+
+            Spacer()
+
+            CircleActionButton(title: "Scan", theme: Self.theme) {
+                Task { await model.scan() }
             }
-            .buttonStyle(.plain)
-            .padding(.top, 4)
+            .padding(.bottom, 36)
         }
-        .padding(40)
+        .frame(maxWidth: .infinity)
     }
 
     // MARK: - Busy
 
     private var busyView: some View {
-        VStack(spacing: 16) {
-            ReclaimGauge(bytes: model.selectedBytes, scanning: true, done: false)
-            Text(model.phase == .cleaning ? "Clearing traces…" : "Scanning browsers…")
-                .foregroundStyle(Palette.muted)
+        VStack(spacing: 0) {
+            Spacer()
+
+            HeroBlob(theme: Self.theme, symbol: "hand.raised.fill", animating: true)
+
+            Text(model.phase == .cleaning ? "Clearing traces…" : "Scanning…")
+                .font(.system(size: 26, weight: .semibold))
+                .foregroundStyle(Palette.ink)
+                .padding(.top, 26)
+
+            Spacer()
+
+            CircleActionButton(title: model.phase == .scanning ? "Scanning" : "Clearing",
+                               theme: Self.theme,
+                               ring: .progress,
+                               disabled: true) {}
+                .padding(.bottom, 36)
         }
+        .frame(maxWidth: .infinity)
     }
 
     // MARK: - Done
 
     private var doneView: some View {
-        VStack(spacing: 18) {
+        VStack(spacing: 0) {
+            Spacer()
+
             Image(systemName: "checkmark.shield.fill")
-                .font(.system(size: 72))
-                .foregroundStyle(Palette.accent)
-                .shadow(color: Palette.accent.opacity(0.5), radius: 20)
+                .font(.system(size: 64))
+                .foregroundStyle(.white)
+                .shadow(color: .white.opacity(0.45), radius: 22)
+
             Text("Traces cleared")
-                .font(.system(size: 30, weight: .bold, design: .rounded))
+                .font(.system(size: 30, weight: .bold))
                 .foregroundStyle(Palette.ink)
+                .padding(.top, 20)
+
             Text("Freed \(ByteFormat.human(model.lastReport?.freedBytes ?? 0)) · moved \(model.lastReport?.trashed.count ?? 0) items to Trash")
+                .font(.system(size: 13))
                 .foregroundStyle(Palette.muted)
+                .padding(.top, 8)
+
             if let report = model.lastReport, !report.failed.isEmpty || !report.blocked.isEmpty {
-                Text("\(report.failed.count + report.blocked.count) item(s) couldn’t be cleared — quit the browser and try again.")
+                Text("\(report.failed.count + report.blocked.count) item(s) couldn't be cleared — quit the browser and try again.")
                     .font(.caption)
-                    .foregroundStyle(Palette.champagne)
+                    .foregroundStyle(Palette.warn)
                     .multilineTextAlignment(.center)
+                    .padding(.top, 8)
             }
-            Button("Scan Again") { Task { await model.scan() } }
-                .controlSize(.large)
-                .tint(Palette.accent)
-                .padding(.top, 6)
+
+            Spacer()
+
+            CircleActionButton(title: "Scan Again", theme: Self.theme) {
+                Task { await model.scan() }
+            }
+            .padding(.bottom, 36)
         }
-        .padding(40)
+        .frame(maxWidth: .infinity)
     }
 
     // MARK: - Results
@@ -115,11 +135,15 @@ struct PrivacyView: View {
         VStack(spacing: 0) {
             header
 
+            if model.fdaMissing && !fdaBannerDismissed {
+                fdaBanner
+            }
+
             if model.groups.isEmpty {
                 emptyState
             } else {
                 groupList
-                cleanBar
+                bottomAction
             }
         }
     }
@@ -130,16 +154,49 @@ struct PrivacyView: View {
                 .font(.system(size: 11, weight: .semibold)).tracking(1.6)
                 .foregroundStyle(Palette.muted)
             Text("\(ByteFormat.human(model.totalBytes)) of browser traces")
-                .font(.system(size: 30, weight: .bold, design: .rounded))
+                .font(.system(size: 32, weight: .bold, design: .rounded))
                 .foregroundStyle(Palette.ink)
-            Text("Clear caches, history and cookies from your browsers. Sign-out and open-tab data is off by default.")
-                .font(.callout)
+            Text("Clear caches, history, cookies and recent-item lists left by your browsers and macOS. Sign-out and site-data traces are off by default.")
+                .font(.system(size: 13))
                 .foregroundStyle(Palette.muted)
                 .multilineTextAlignment(.center)
         }
         .padding(.top, 40)
         .padding(.horizontal, 24)
         .padding(.bottom, 16)
+    }
+
+    private var fdaBanner: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "lock.shield.fill")
+                .foregroundStyle(Palette.warn)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Safari data needs Full Disk Access")
+                    .font(.callout.weight(.semibold))
+                    .foregroundStyle(Palette.ink)
+                Text("Grant it in System Settings › Privacy & Security, then scan again.")
+                    .font(.caption)
+                    .foregroundStyle(Palette.muted)
+            }
+            Spacer()
+            Button("Open Settings") {
+                // swiftlint:disable:next force_unwrapping
+                NSWorkspace.shared.open(URL(string:
+                    "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles")!)
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
+            Button(action: { fdaBannerDismissed = true }) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(Palette.muted)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 14).padding(.vertical, 10)
+        .glassCard(radius: 12)
+        .padding(.horizontal, 22)
+        .padding(.bottom, 8)
     }
 
     private var groupList: some View {
@@ -154,22 +211,21 @@ struct PrivacyView: View {
         }
     }
 
-    private var cleanBar: some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 1) {
-                Text("\(model.selectedCount) traces selected")
-                    .font(.subheadline).foregroundStyle(Palette.ink)
-                Text("Everything goes to the Trash — recoverable")
-                    .font(.caption).foregroundStyle(Palette.muted)
+    private var bottomAction: some View {
+        VStack(spacing: 10) {
+            Text("\(model.selectedRowCount) traces · \(ByteFormat.human(model.selectedBytes)) selected")
+                .font(.system(size: 12))
+                .foregroundStyle(.white.opacity(0.8))
+
+            CircleActionButton(title: "Clean",
+                               theme: Self.theme,
+                               disabled: model.selectedCount == 0) {
+                showConfirm = true
             }
-            Spacer()
-            CleanButton(size: model.selectedBytes, disabled: model.selectedCount == 0) { showConfirm = true }
         }
-        .padding(16)
-        .background(Palette.bg.opacity(0.55))
-        .overlay(alignment: .top) { Rectangle().fill(Palette.hair).frame(height: 1) }
+        .padding(.bottom, 24)
         .confirmationDialog(
-            "Clear \(model.selectedCount) traces (\(ByteFormat.human(model.selectedBytes)))?",
+            "Clear \(model.selectedRowCount) traces (\(ByteFormat.human(model.selectedBytes)))?",
             isPresented: $showConfirm, titleVisibility: .visible
         ) {
             Button("Move to Trash") { Task { await model.clean() } }
@@ -184,9 +240,9 @@ struct PrivacyView: View {
     /// not just at the checkbox.
     private var confirmMessage: String {
         var parts = ["Nothing is deleted permanently — you can restore everything from the Trash."]
-        if model.selectedSignsOut { parts.append("Clearing cookies will sign you out of websites.") }
+        if model.selectedSignsOut { parts.append("Clearing cookies or site data may sign you out of websites.") }
         if model.selectedLosesTabs { parts.append("Clearing sessions will forget your open tabs.") }
-        parts.append("Quit your browsers first so their files aren’t rewritten.")
+        parts.append("Quit your browsers first so their files aren't rewritten.")
         return parts.joined(separator: " ")
     }
 
@@ -208,31 +264,32 @@ struct PrivacyView: View {
     }
 }
 
-// MARK: - One browser card
+// MARK: - One browser / system card
 
 private struct PrivacyGroupCard: View {
     let group: PrivacyGroup
     let model: PrivacyViewModel
 
     var body: some View {
+        let rows = model.aggregatedRows(for: group)
         VStack(spacing: 0) {
-            header
+            header(rows: rows)
             Rectangle().fill(Palette.hair).frame(height: 1)
             if model.isRunning(group.app) { runningNotice }
-            ForEach(Array(group.items.enumerated()), id: \.element.id) { index, item in
-                PrivacyItemRow(item: item,
-                               selected: model.isSelected(item.id)) {
-                    model.toggle(item.id)
+            ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
+                AggregatedPrivacyRow(row: row,
+                                     selected: model.isSelected(aggregatedRow: row)) {
+                    model.toggle(aggregatedRow: row)
                 }
-                if index < group.items.count - 1 {
+                if index < rows.count - 1 {
                     Rectangle().fill(Palette.hair).frame(height: 1).padding(.leading, 44)
                 }
             }
         }
-        .glassCard(radius: 16)
+        .glassCard(radius: 14)
     }
 
-    private var header: some View {
+    private func header(rows: [AggregatedRow]) -> some View {
         HStack(spacing: 12) {
             BrowserIconView(app: group.app)
                 .frame(width: 30, height: 30)
@@ -243,22 +300,19 @@ private struct PrivacyGroupCard: View {
                         .font(.body.weight(.semibold))
                         .foregroundStyle(Palette.ink)
                     if model.isRunning(group.app) {
-                        Badge(text: "Running", color: Palette.champagne)
+                        TagBadge(text: "Running")
                     }
                 }
-                Text("\(model.selectedCount(in: group)) of \(group.items.count) selected · \(ByteFormat.human(group.totalBytes))")
+                Text("\(model.selectedRowCount(in: group)) of \(rows.count) selected · \(ByteFormat.human(group.totalBytes))")
                     .font(.caption)
                     .foregroundStyle(Palette.muted)
             }
 
             Spacer()
 
-            Button { model.toggleGroup(group) } label: {
-                Text(allSelected ? "Deselect all" : "Select all")
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(Palette.accent)
+            GlassPill(title: allSelected ? "Deselect all" : "Select all") {
+                model.toggleGroup(group)
             }
-            .buttonStyle(.plain)
         }
         .padding(14)
     }
@@ -270,20 +324,29 @@ private struct PrivacyGroupCard: View {
 
     private var runningNotice: some View {
         HStack(spacing: 8) {
-            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Palette.champagne)
+            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Palette.warn)
             Text("“\(group.app.displayName)” is running. Quit it first so its files aren’t rewritten.")
                 .font(.caption).foregroundStyle(Palette.ink2)
             Spacer()
+            Button("Quit") {
+                model.quit(group.app)
+            }
+            .buttonStyle(.bordered)
+            .controlSize(.small)
         }
         .padding(.horizontal, 14).padding(.vertical, 9)
-        .overlay(alignment: .bottom) { Rectangle().fill(Palette.hair).frame(height: 1).padding(.leading, 44) }
+        .overlay(alignment: .bottom) {
+            Rectangle().fill(Palette.hair).frame(height: 1).padding(.leading, 44)
+        }
     }
 }
 
-// MARK: - One trace row
+// MARK: - Aggregated trace row
 
-private struct PrivacyItemRow: View {
-    let item: PrivacyItem
+/// One row per (kind, context) pair, showing the summed size of all underlying
+/// files. Its checkbox toggles all underlying item ids together.
+private struct AggregatedPrivacyRow: View {
+    let row: AggregatedRow
     let selected: Bool
     let onToggle: () -> Void
 
@@ -292,27 +355,30 @@ private struct PrivacyItemRow: View {
             Button(action: onToggle) {
                 Image(systemName: selected ? "checkmark.circle.fill" : "circle")
                     .font(.system(size: 18))
-                    .foregroundStyle(selected ? Palette.accent : .white.opacity(0.28))
+                    .foregroundStyle(selected ? .white : .white.opacity(0.28))
             }
             .buttonStyle(.plain)
-            .accessibilityLabel(item.kind.titleEN)
+            .accessibilityLabel(row.kind.titleEN)
             .accessibilityValue(selected ? "Selected" : "Not selected")
 
-            Image(systemName: item.kind.symbol)
+            Image(systemName: row.kind.symbol)
                 .font(.system(size: 14))
-                .foregroundStyle(Palette.ink2.opacity(0.7))
+                .foregroundStyle(.white.opacity(0.6))
                 .frame(width: 20)
 
             VStack(alignment: .leading, spacing: 1) {
                 HStack(spacing: 7) {
-                    Text(item.kind.titleEN)
+                    Text(row.kind.titleEN)
                         .font(.callout)
                         .foregroundStyle(Palette.ink2)
-                    if let note = item.kind.impactNote {
-                        Badge(text: note, color: Palette.champagne)
+                    if let ctx = row.context {
+                        TagBadge(text: ctx)
+                    }
+                    if let note = row.kind.impactNote {
+                        TagBadge(text: note)
                     }
                 }
-                Text(item.kind.detailEN)
+                Text(row.kind.detailEN)
                     .font(.caption2)
                     .foregroundStyle(Palette.muted.opacity(0.8))
                     .lineLimit(1)
@@ -321,36 +387,12 @@ private struct PrivacyItemRow: View {
 
             Spacer()
 
-            Text(ByteFormat.human(item.sizeBytes))
+            Text(ByteFormat.human(row.totalSize))
                 .font(.caption).monospacedDigit()
                 .foregroundStyle(Palette.muted)
-
-            Button {
-                NSWorkspace.shared.activateFileViewerSelecting([item.url])
-            } label: {
-                Image(systemName: "magnifyingglass")
-                    .font(.system(size: 12))
-                    .foregroundStyle(Palette.muted.opacity(0.8))
-            }
-            .buttonStyle(.plain)
-            .help("Reveal in Finder")
         }
         .padding(.vertical, 6)
         .padding(.horizontal, 14)
-    }
-}
-
-// MARK: - Small badge (mirrors the uninstaller's)
-
-private struct Badge: View {
-    let text: String
-    let color: Color
-    var body: some View {
-        Text(text)
-            .font(.system(size: 9, weight: .semibold))
-            .foregroundStyle(color)
-            .padding(.horizontal, 6).padding(.vertical, 2)
-            .background(Capsule().fill(color.opacity(0.15)))
     }
 }
 
@@ -366,10 +408,10 @@ private struct BrowserIconView: View {
                 .aspectRatio(contentMode: .fit)
         } else {
             RoundedRectangle(cornerRadius: 7, style: .continuous)
-                .fill(Palette.accent.opacity(0.15))
+                .fill(.white.opacity(0.12))
                 .overlay(Image(systemName: app.symbol)
                     .font(.system(size: 16))
-                    .foregroundStyle(Palette.accent))
+                    .foregroundStyle(.white.opacity(0.85)))
         }
     }
 }
@@ -378,7 +420,8 @@ private enum BrowserIcon {
     private static let cache = NSCache<NSString, NSImage>()
 
     /// The installed browser's Finder icon, resolved from its bundle id and
-    /// cached. `nil` when the browser can't be located.
+    /// cached. `nil` when the browser can't be located (including `systemRecents`,
+    /// which has no bundle IDs — the SF-Symbol fallback handles that).
     static func image(for app: PrivacyApp) -> NSImage? {
         let key = app.rawValue as NSString
         if let cached = cache.object(forKey: key) { return cached }

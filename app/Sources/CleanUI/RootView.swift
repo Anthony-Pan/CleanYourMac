@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// App sections shown in the custom sidebar.
+/// App sections shown in the sidebar rail.
 enum AppSection: String, CaseIterable, Identifiable {
     case smartScan, uninstaller, largeFiles, privacy
 
@@ -21,12 +21,20 @@ enum AppSection: String, CaseIterable, Identifiable {
         case .privacy: return "hand.raised"
         }
     }
-    var isLive: Bool { true }
+    /// The module's signature stage + accent colors.
+    var theme: ModuleTheme {
+        switch self {
+        case .smartScan: return .magenta
+        case .uninstaller: return .indigo
+        case .largeFiles: return .teal
+        case .privacy: return .blue
+        }
+    }
 }
 
-/// Top-level shell: a fully custom dark sidebar + the active section. No
-/// NavigationSplitView — everything is hand-styled to the dark glass theme,
-/// and the window titlebar is hidden so content runs edge to edge.
+/// Top-level shell: one full-window module stage, the icon rail, and the
+/// active section's content. The titlebar is hidden so the stage runs edge to
+/// edge; switching modules crossfades the stage to the new signature gradient.
 public struct RootView: View {
     public init() {}
 
@@ -39,25 +47,45 @@ public struct RootView: View {
     @State private var privacyModel = PrivacyViewModel()
 
     public var body: some View {
-        HStack(spacing: 0) {
-            Sidebar(selection: $selection)
+        ZStack {
+            ModuleBackground(theme: selection.theme, active: stageActive)
+                .id(selection)
+                .transition(.opacity)
 
-            ZStack {
-                switch selection {
-                case .smartScan:
-                    SmartScanView(model: scanModel)
-                case .uninstaller:
-                    UninstallerView(model: uninstallModel)
-                case .largeFiles:
-                    LargeFilesView(model: largeFilesModel)
-                case .privacy:
-                    PrivacyView(model: privacyModel)
+            HStack(spacing: 0) {
+                Sidebar(selection: $selection)
+
+                ZStack {
+                    switch selection {
+                    case .smartScan:
+                        SmartScanView(model: scanModel)
+                    case .uninstaller:
+                        UninstallerView(model: uninstallModel)
+                    case .largeFiles:
+                        LargeFilesView(model: largeFilesModel)
+                    case .privacy:
+                        PrivacyView(model: privacyModel)
+                    }
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .frame(minWidth: 920, minHeight: 660)
-        .background(Palette.bg)
+        .frame(minWidth: 960, minHeight: 680)
         .preferredColorScheme(.dark)
+    }
+
+    /// Whether the visible module is actively scanning or cleaning — drives
+    /// the stage's brighter, breathing glow.
+    private var stageActive: Bool {
+        switch selection {
+        case .smartScan:
+            return scanModel.phase == .scanning || scanModel.phase == .cleaning
+        case .uninstaller:
+            return uninstallModel.phase == .scanning
+        case .largeFiles:
+            return largeFilesModel.phase == .scanning || largeFilesModel.phase == .cleaning
+        case .privacy:
+            return privacyModel.phase == .scanning || privacyModel.phase == .cleaning
+        }
     }
 }

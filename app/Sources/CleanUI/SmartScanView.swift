@@ -7,12 +7,8 @@ struct SmartScanView: View {
 
     init(model: ScanViewModel) { self.model = model }
 
-    private var scanning: Bool { model.phase == .scanning || model.phase == .cleaning }
-
     var body: some View {
         ZStack {
-            StageBackground(glow: scanning)
-
             switch model.phase {
             case .idle:
                 idleView
@@ -40,68 +36,68 @@ struct SmartScanView: View {
     // MARK: - Idle (start screen with a Scan button)
 
     private var idleView: some View {
-        VStack(spacing: 22) {
-            ZStack {
-                Circle().stroke(.white.opacity(0.08), lineWidth: 15)
-                Circle()
-                    .fill(RadialGradient(colors: [Palette.accent.opacity(0.18), .clear],
-                                         center: .center, startRadius: 20, endRadius: 130))
-                Image(systemName: "sparkles")
-                    .font(.system(size: 58))
-                    .foregroundStyle(Palette.accent)
-            }
-            .frame(width: 214, height: 214)
+        VStack(spacing: 0) {
+            Spacer()
 
-            VStack(spacing: 6) {
-                Text("Smart Scan")
-                    .font(.system(size: 28, weight: .bold))
-                    .foregroundStyle(Palette.ink)
-                Text("Find caches, logs and developer junk you can safely reclaim.")
-                    .font(.callout)
-                    .foregroundStyle(Palette.muted)
-                    .multilineTextAlignment(.center)
-                    .frame(maxWidth: 340)
-            }
+            HeroBlob(theme: .magenta, symbol: "sparkles")
 
-            Button { model.startScan() } label: {
-                Label("Scan", systemImage: "sparkles")
-                    .font(.headline)
-                    .foregroundStyle(Color.black.opacity(0.85))
-                    .padding(.horizontal, 40)
-                    .padding(.vertical, 13)
-                    .background(Capsule().fill(Palette.accentLinear))
-                    .shadow(color: Palette.accent.opacity(0.5), radius: 16, y: 3)
-            }
-            .buttonStyle(.plain)
-            .padding(.top, 4)
+            Text("Smart Scan")
+                .font(.system(size: 34, weight: .bold))
+                .foregroundStyle(.white)
+                .padding(.top, 26)
+
+            Text("Find caches, logs and developer junk you can safely reclaim.")
+                .font(.system(size: 13))
+                .foregroundStyle(Palette.muted)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 380)
+                .padding(.top, 8)
+
+            Spacer()
+
+            CircleActionButton(title: "Scan", theme: .magenta) { model.startScan() }
         }
-        .padding(40)
+        .padding(.bottom, 36)
     }
 
     // MARK: - Scanning (live discovery)
 
     private var scanningView: some View {
-        VStack(spacing: 20) {
-            ReclaimGauge(bytes: model.scannedBytes, scanning: true, done: false)
+        VStack(spacing: 0) {
+            Spacer()
 
-            VStack(spacing: 4) {
-                Text(model.currentLocation.isEmpty ? "Scanning…" : "Scanning \(model.currentLocation)…")
-                    .font(.headline)
-                    .foregroundStyle(Palette.ink)
-                    .contentTransition(.opacity)
-                Text("\(model.foundCount) items found")
-                    .font(.callout).monospacedDigit()
+            HeroBlob(theme: .magenta, symbol: "sparkles", animating: true)
+
+            Text("Scanning…")
+                .font(.system(size: 26, weight: .semibold))
+                .foregroundStyle(.white)
+                .padding(.top, 24)
+
+            if !model.currentLocation.isEmpty {
+                Text(model.currentLocation)
+                    .font(.caption)
                     .foregroundStyle(Palette.muted)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .frame(maxWidth: 460)
+                    .padding(.top, 8)
+                    .contentTransition(.opacity)
             }
+
+            Text("\(model.foundCount) items · \(ByteFormat.human(model.scannedBytes)) found")
+                .font(.caption)
+                .monospacedDigit()
+                .foregroundStyle(Palette.muted)
+                .padding(.top, 4)
 
             VStack(spacing: 5) {
                 ForEach(model.recentFinds.reversed()) { item in
                     HStack(spacing: 8) {
                         Image(systemName: "doc.fill")
                             .font(.system(size: 10))
-                            .foregroundStyle(Palette.accent.opacity(0.8))
+                            .foregroundStyle(.white.opacity(0.5))
                         Text(item.url.lastPathComponent)
-                            .foregroundStyle(Palette.ink2)
+                            .foregroundStyle(.white.opacity(0.85))
                             .lineLimit(1)
                         Spacer()
                         Text(ByteFormat.human(item.sizeBytes))
@@ -112,49 +108,62 @@ struct SmartScanView: View {
                     .transition(.opacity.combined(with: .move(edge: .bottom)))
                 }
             }
-            .frame(width: 440, height: 120, alignment: .top)
+            .frame(width: 460, height: 120, alignment: .top)
             .animation(.snappy, value: model.recentFinds)
+            .padding(.top, 18)
 
-            Button { model.cancelScan() } label: {
-                Label("Stop", systemImage: "stop.fill")
-                    .font(.subheadline.weight(.medium))
-                    .foregroundStyle(Palette.ink2)
-                    .padding(.horizontal, 22).padding(.vertical, 9)
-                    .background(Capsule().strokeBorder(.white.opacity(0.22), lineWidth: 1))
-            }
-            .buttonStyle(.plain)
+            Spacer()
+
+            CircleActionButton(title: "Stop", theme: .magenta, ring: .progress) { model.cancelScan() }
         }
-        .padding(.top, 10)
+        .padding(.bottom, 36)
     }
 
     // MARK: - Cleaning
 
     private var cleaningView: some View {
-        VStack(spacing: 16) {
-            ReclaimGauge(bytes: model.selectedBytes, scanning: true, done: false)
-            Text("Moving to Trash…").foregroundStyle(Palette.muted)
+        VStack(spacing: 0) {
+            Spacer()
+
+            HeroBlob(theme: .magenta, symbol: "sparkles", animating: true)
+
+            Text("Moving to Trash…")
+                .font(.system(size: 26, weight: .semibold))
+                .foregroundStyle(.white)
+                .padding(.top, 24)
+
+            Spacer()
+
+            CircleActionButton(title: "Cleaning", theme: .magenta, ring: .progress, disabled: true) {}
         }
+        .padding(.bottom, 36)
     }
 
     // MARK: - Done
 
     private var doneView: some View {
-        VStack(spacing: 18) {
+        VStack(spacing: 0) {
+            Spacer()
+
             Image(systemName: "checkmark.circle.fill")
-                .font(.system(size: 72))
-                .foregroundStyle(Palette.accent)
-                .shadow(color: Palette.accent.opacity(0.5), radius: 20)
+                .font(.system(size: 64))
+                .foregroundStyle(.white)
+                .shadow(color: .white.opacity(0.45), radius: 18)
+
             Text("All clean!")
-                .font(.system(size: 30, weight: .bold, design: .rounded))
-                .foregroundStyle(Palette.ink)
+                .font(.system(size: 30, weight: .bold))
+                .foregroundStyle(.white)
+                .padding(.top, 18)
+
             Text("Freed \(ByteFormat.human(model.lastReport?.freedBytes ?? 0)) · moved \(model.lastReport?.trashed.count ?? 0) items to Trash")
                 .foregroundStyle(Palette.muted)
-            Button("Scan Again") { model.startScan() }
-                .controlSize(.large)
-                .tint(Palette.accent)
                 .padding(.top, 6)
+
+            Spacer()
+
+            CircleActionButton(title: "Scan Again", theme: .magenta) { model.startScan() }
         }
-        .padding(40)
+        .padding(.bottom, 36)
     }
 
     // MARK: - Grid
@@ -165,18 +174,18 @@ struct SmartScanView: View {
                 Text("SMART SCAN")
                     .font(.system(size: 11, weight: .semibold)).tracking(1.6)
                     .foregroundStyle(Palette.muted)
-                Text("\(ByteFormat.human(model.selectedBytes)) to reclaim")
-                    .font(.system(size: 34, weight: .bold, design: .rounded))
-                    .foregroundStyle(Palette.ink)
-                Text("\(model.selectedItemCount) items across \(model.groups.count) categories")
-                    .font(.callout)
+                Text("\(ByteFormat.human(model.selectedBytes)) to clean up")
+                    .font(.system(size: 32, weight: .bold, design: .rounded))
+                    .foregroundStyle(.white)
+                Text("\(model.selectedItemCount) items across \(model.groups.count) categories · everything goes to the Trash")
+                    .font(.system(size: 13))
                     .foregroundStyle(Palette.muted)
             }
             .padding(.top, 46)
             .padding(.bottom, 22)
 
             ScrollView {
-                LazyVGrid(columns: [GridItem(.flexible(), spacing: 16), GridItem(.flexible(), spacing: 16)], spacing: 16) {
+                LazyVGrid(columns: [GridItem(.flexible(), spacing: 14), GridItem(.flexible(), spacing: 14)], spacing: 14) {
                     ForEach(model.groups) { group in
                         CategoryGridCard(group: group, model: model) {
                             withAnimation(.snappy) { model.openedCategoryID = group.id }
@@ -187,57 +196,25 @@ struct SmartScanView: View {
                 .padding(.bottom, 20)
             }
 
-            cleanBar
-        }
-    }
+            VStack(spacing: 10) {
+                Text("\(model.selectedItemCount) items · \(ByteFormat.human(model.selectedBytes)) selected")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.white.opacity(0.8))
 
-    private var cleanBar: some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 1) {
-                Text("\(model.selectedItemCount) items selected")
-                    .font(.subheadline).foregroundStyle(Palette.ink)
-                Text("Everything goes to the Trash — recoverable")
-                    .font(.caption).foregroundStyle(Palette.muted)
+                CircleActionButton(title: "Clean", theme: .magenta,
+                                   disabled: model.selectedItemCount == 0) { showConfirm = true }
             }
-            Spacer()
-            CleanButton(size: model.selectedBytes,
-                        disabled: model.selectedItemCount == 0) { showConfirm = true }
+            .padding(.bottom, 24)
+            .confirmationDialog(
+                "Move \(model.selectedItemCount) items (\(ByteFormat.human(model.selectedBytes))) to the Trash?",
+                isPresented: $showConfirm, titleVisibility: .visible
+            ) {
+                Button("Move to Trash") { Task { await model.clean() } }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text("Nothing is deleted permanently — you can restore everything from the Trash.")
+            }
         }
-        .padding(16)
-        .background(Palette.bg.opacity(0.55))
-        .overlay(alignment: .top) { Rectangle().fill(Palette.hair).frame(height: 1) }
-        .confirmationDialog(
-            "Move \(model.selectedItemCount) items (\(ByteFormat.human(model.selectedBytes))) to the Trash?",
-            isPresented: $showConfirm, titleVisibility: .visible
-        ) {
-            Button("Move to Trash") { Task { await model.clean() } }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("Nothing is deleted permanently — you can restore everything from the Trash.")
-        }
-    }
-}
-
-// MARK: - Reusable primary button
-
-struct CleanButton: View {
-    let size: Int64
-    var disabled: Bool
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            Label("Clean \(ByteFormat.human(size))", systemImage: "sparkles")
-                .font(.headline)
-                .foregroundStyle(Color.black.opacity(0.85))
-                .padding(.horizontal, 22)
-                .padding(.vertical, 11)
-                .background(Capsule().fill(Palette.accentLinear))
-                .shadow(color: Palette.accent.opacity(disabled ? 0 : 0.5), radius: 14, y: 2)
-        }
-        .buttonStyle(.plain)
-        .opacity(disabled ? 0.4 : 1)
-        .disabled(disabled)
     }
 }
 
@@ -253,16 +230,11 @@ struct CategoryDetailView: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack {
-                Button(action: onBack) {
-                    Label("Smart Scan", systemImage: "chevron.left")
-                        .font(.callout.weight(.medium))
-                        .foregroundStyle(Palette.ink2)
-                }
-                .buttonStyle(.plain)
+                GlassPill(title: "Smart Scan", systemImage: "chevron.left", action: onBack)
                 Spacer()
             }
             .padding(.horizontal, 20)
-            .padding(.top, 44)
+            .padding(.top, 48)
             .padding(.bottom, 10)
 
             HStack(spacing: 14) {
@@ -283,14 +255,9 @@ struct CategoryDetailView: View {
                         .foregroundStyle(Palette.muted)
                 }
                 Spacer()
-                Button {
+                GlassPill(title: model.categoryState(group) == .all ? "Deselect All" : "Select All") {
                     model.toggleCategory(group)
-                } label: {
-                    Text(model.categoryState(group) == .all ? "Deselect All" : "Select All")
-                        .font(.callout.weight(.medium))
                 }
-                .buttonStyle(.plain)
-                .foregroundStyle(Palette.accent)
             }
             .padding(.horizontal, 24)
             .padding(.bottom, 14)
@@ -300,7 +267,7 @@ struct CategoryDetailView: View {
                     ForEach(Array(group.items.enumerated()), id: \.element.id) { index, item in
                         ItemRow(item: item,
                                 selected: model.isItemSelected(item.id),
-                                color: style.glow) {
+                                color: .white) {
                             model.toggleItem(item.id)
                         }
                         if index < group.items.count - 1 {
@@ -309,7 +276,7 @@ struct CategoryDetailView: View {
                     }
                 }
                 .padding(.vertical, 6)
-                .glassCard(radius: 18)
+                .glassCard(radius: 16)
                 .padding(.horizontal, 20)
                 .padding(.bottom, 16)
             }
@@ -318,17 +285,9 @@ struct CategoryDetailView: View {
                 Text("\(model.selectedCount(in: group)) selected · \(ByteFormat.human(selectedBytesInGroup))")
                     .font(.subheadline).foregroundStyle(Palette.ink)
                 Spacer()
-                Button(action: onBack) {
-                    Text("Done")
-                        .font(.headline)
-                        .foregroundStyle(Palette.ink)
-                        .padding(.horizontal, 24).padding(.vertical, 10)
-                        .background(Capsule().strokeBorder(.white.opacity(0.25), lineWidth: 1))
-                }
-                .buttonStyle(.plain)
+                GlassPill(title: "Done", prominent: true, action: onBack)
             }
             .padding(16)
-            .background(Palette.bg.opacity(0.55))
             .overlay(alignment: .top) { Rectangle().fill(Palette.hair).frame(height: 1) }
         }
     }

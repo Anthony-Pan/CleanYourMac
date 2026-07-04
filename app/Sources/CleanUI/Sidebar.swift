@@ -1,95 +1,41 @@
 import SwiftUI
 
-/// Hand-built dark sidebar (no system List / NavigationSplitView chrome).
+/// CleanMyMac-5-style icon rail: a narrow strip of glassy square tiles over
+/// the module stage, darkened so the active module's gradient shows through.
+/// Labels live in tooltips; the window titlebar is hidden, so the rail leaves
+/// room for the traffic lights at the top.
 struct Sidebar: View {
     @Binding var selection: AppSection
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            brand
-                .padding(.top, 42)
-                .padding(.horizontal, 18)
-                .padding(.bottom, 22)
-
-            Text("TOOLS")
-                .font(.system(size: 10, weight: .semibold))
-                .tracking(1.4)
-                .foregroundStyle(Palette.muted.opacity(0.7))
-                .padding(.horizontal, 22)
-                .padding(.bottom, 8)
-
-            VStack(spacing: 4) {
+        VStack(spacing: 0) {
+            VStack(spacing: 10) {
                 ForEach(AppSection.allCases) { section in
-                    SidebarRow(section: section, selected: selection == section) {
-                        withAnimation(.snappy(duration: 0.2)) { selection = section }
+                    RailTile(section: section, selected: selection == section) {
+                        withAnimation(.snappy(duration: 0.25)) { selection = section }
                     }
                 }
             }
-            .padding(.horizontal, 12)
+            .padding(.top, 54)
 
             Spacer()
 
-            footer
-                .padding(.horizontal, 18)
-                .padding(.bottom, 18)
-        }
-        .frame(width: 236)
-        .frame(maxHeight: .infinity)
-        .background(sidebarBackground)
-        .overlay(alignment: .trailing) {
-            Rectangle().fill(.white.opacity(0.06)).frame(width: 1)
-        }
-    }
-
-    private var brand: some View {
-        HStack(spacing: 11) {
-            RoundedRectangle(cornerRadius: 9, style: .continuous)
-                .fill(Palette.accentLinear)
-                .frame(width: 32, height: 32)
-                .overlay(Image(systemName: "sparkles")
-                    .font(.system(size: 15, weight: .bold))
-                    .foregroundStyle(Color.black.opacity(0.85)))
-                .shadow(color: Palette.accent.opacity(0.45), radius: 10)
-
-            VStack(alignment: .leading, spacing: 1) {
-                Text("CleanYourMac")
-                    .font(.system(size: 15, weight: .bold))
-                    .foregroundStyle(Palette.ink)
-                Text("Safe cleanup")
-                    .font(.system(size: 11))
-                    .foregroundStyle(Palette.muted)
-            }
-        }
-    }
-
-    private var footer: some View {
-        HStack(spacing: 7) {
             Image(systemName: "shield.lefthalf.filled")
-                .font(.system(size: 11))
-                .foregroundStyle(Palette.accent.opacity(0.9))
-            Text("Files go to Trash")
-                .font(.system(size: 11))
-                .foregroundStyle(Palette.muted)
-            Spacer()
-            Text("v0.1")
-                .font(.system(size: 10))
-                .foregroundStyle(Palette.muted.opacity(0.6))
+                .font(.system(size: 12))
+                .foregroundStyle(.white.opacity(0.45))
+                .help("Files go to the Trash — recoverable")
+                .padding(.bottom, 16)
         }
-    }
-
-    private var sidebarBackground: some View {
-        ZStack(alignment: .top) {
-            LinearGradient(colors: [Color(hex: 0x241148), Color(hex: 0x0E0620)],
-                           startPoint: .top, endPoint: .bottom)
-            // faint aqua glow behind the brand
-            RadialGradient(colors: [Palette.accent.opacity(0.12), .clear],
-                           center: .init(x: 0.3, y: 0.02), startRadius: 4, endRadius: 190)
+        .frame(width: 68)
+        .frame(maxHeight: .infinity)
+        .background(Color.black.opacity(0.30))
+        .overlay(alignment: .trailing) {
+            Rectangle().fill(.white.opacity(0.07)).frame(width: 1)
         }
-        .ignoresSafeArea()
     }
 }
 
-private struct SidebarRow: View {
+private struct RailTile: View {
     let section: AppSection
     let selected: Bool
     let action: () -> Void
@@ -98,49 +44,24 @@ private struct SidebarRow: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 11) {
-                Image(systemName: section.symbol)
-                    .font(.system(size: 15, weight: selected ? .semibold : .regular))
-                    .foregroundStyle(selected ? Palette.accent : Palette.muted)
-                    .frame(width: 22)
-
-                Text(section.title)
-                    .font(.system(size: 13.5, weight: selected ? .semibold : .regular))
-                    .foregroundStyle(selected ? Palette.ink : Palette.ink2.opacity(0.75))
-
-                Spacer(minLength: 4)
-
-                if !section.isLive {
-                    Text("soon")
-                        .font(.system(size: 9, weight: .medium))
-                        .foregroundStyle(Palette.muted)
-                        .padding(.horizontal, 6).padding(.vertical, 2)
-                        .background(Capsule().fill(.white.opacity(0.06)))
-                }
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 9)
-            .background(rowBackground)
-            .overlay(alignment: .leading) {
-                if selected {
-                    Capsule().fill(Palette.accent)
-                        .frame(width: 3, height: 17)
-                        .shadow(color: Palette.accent.opacity(0.7), radius: 4)
-                }
-            }
-            .contentShape(Rectangle())
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(.white.opacity(selected ? 0.20 : (hover ? 0.10 : 0.05)))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12, style: .continuous)
+                        .strokeBorder(.white.opacity(selected ? 0.30 : 0.10), lineWidth: 1)
+                )
+                .overlay(
+                    Image(systemName: section.symbol)
+                        .font(.system(size: 16, weight: selected ? .semibold : .regular))
+                        .foregroundStyle(.white.opacity(selected ? 1 : 0.60))
+                )
+                .frame(width: 42, height: 42)
+                .shadow(color: .black.opacity(selected ? 0.25 : 0), radius: 8, y: 4)
+                .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         }
         .buttonStyle(.plain)
-        .disabled(!section.isLive)
-        .onHover { hover = $0 }
-    }
-
-    @ViewBuilder private var rowBackground: some View {
-        RoundedRectangle(cornerRadius: 10, style: .continuous)
-            .fill(selected ? Palette.accent.opacity(0.13) : (hover ? Color.white.opacity(0.045) : .clear))
-            .overlay(
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .strokeBorder(selected ? Palette.accent.opacity(0.22) : .clear, lineWidth: 1)
-            )
+        .help(section.title)
+        .onHover { h in withAnimation(.easeOut(duration: 0.12)) { hover = h } }
+        .accessibilityLabel(section.title)
     }
 }

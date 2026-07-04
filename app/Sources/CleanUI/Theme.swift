@@ -10,41 +10,108 @@ extension Color {
     }
 }
 
-/// Palette: CleanMyMac-style deep violet stage with a bright aqua accent and
-/// vivid per-category card gradients.
+// MARK: - Module themes
+
+/// One module's signature colors, CleanMyMac-5 style: a full-bleed gradient
+/// stage (deep edges, bright glow center) plus an accent for its primary
+/// circular action button.
+struct ModuleTheme: Equatable {
+    let deep: Color      // darkest, outer edges of the stage
+    let mid: Color       // upper-body tint of the stage
+    let glow: Color      // bright radial center
+    let accent: Color    // action-button fill
+    let accentHi: Color  // lighter accent, gradient top
+
+    var accentGradient: LinearGradient {
+        LinearGradient(colors: [accentHi, accent], startPoint: .top, endPoint: .bottom)
+    }
+
+    /// Smart Scan — magenta on deep purple.
+    static let magenta = ModuleTheme(
+        deep: Color(hex: 0x24072F), mid: Color(hex: 0x7A1B8F),
+        glow: Color(hex: 0xDE47BE), accent: Color(hex: 0xC91FB5), accentHi: Color(hex: 0xEF5AD6))
+
+    /// Uninstaller — indigo on deep navy.
+    static let indigo = ModuleTheme(
+        deep: Color(hex: 0x0D0A33), mid: Color(hex: 0x322788),
+        glow: Color(hex: 0x7263F2), accent: Color(hex: 0x5D49F0), accentHi: Color(hex: 0x8672FF))
+
+    /// Large & Old Files — teal on deep pine.
+    static let teal = ModuleTheme(
+        deep: Color(hex: 0x032220), mid: Color(hex: 0x0C574D),
+        glow: Color(hex: 0x2FB9A4), accent: Color(hex: 0x0FA893), accentHi: Color(hex: 0x36CDB4))
+
+    /// Privacy — azure on deep navy.
+    static let blue = ModuleTheme(
+        deep: Color(hex: 0x051430), mid: Color(hex: 0x0F3A78),
+        glow: Color(hex: 0x3E8BE8), accent: Color(hex: 0x2374E1), accentHi: Color(hex: 0x59A5FF))
+}
+
+// MARK: - Shared text & chrome colors
+
 enum Palette {
-    static let bg = Color(hex: 0x140A28)
-    static let purpleTop = Color(hex: 0x2E1758)
-    static let purpleGlow = Color(hex: 0x6A34C8)
+    static let ink = Color.white
+    static let ink2 = Color.white.opacity(0.82)
+    static let muted = Color.white.opacity(0.58)
+    static let faint = Color.white.opacity(0.36)
+    static let hair = Color.white.opacity(0.10)
+    static let warn = Color(hex: 0xFFD48A)
 
-    static let ink = Color(hex: 0xF3F1FA)
-    static let ink2 = Color(hex: 0xDBD6EC)
-    static let muted = Color(hex: 0x9A93B8)
-    static let hair = Color.white.opacity(0.08)
-
-    static let accent = Color(hex: 0x00F5D4)          // aqua
-    static let blue = Color(hex: 0x2442FF)
-    static let champagne = Color(hex: 0xF4D28A)
-    static let mint = Color(hex: 0x9CFFDF)
-
-    static let accentColors = [Color(hex: 0xE7FFF9), Color(hex: 0x00F5D4), Color(hex: 0x61A8FF)]
-    static let accentRing = AngularGradient(gradient: Gradient(colors: accentColors + [accentColors[0]]), center: .center)
-    static let accentLinear = LinearGradient(colors: accentColors, startPoint: .topLeading, endPoint: .bottomTrailing)
-
+    static let glassBorder = Color.white.opacity(0.16)
+    static let glassBorderFocus = Color.white.opacity(0.34)
     static let glassGradient = LinearGradient(stops: [
-        .init(color: Color.white.opacity(0.10), location: 0.0),
-        .init(color: Color.white.opacity(0.04), location: 0.5),
-        .init(color: Color.black.opacity(0.10), location: 1.0),
+        .init(color: .white.opacity(0.13), location: 0.0),
+        .init(color: .white.opacity(0.06), location: 0.55),
+        .init(color: .white.opacity(0.03), location: 1.0),
     ], startPoint: .topLeading, endPoint: .bottomTrailing)
+}
 
-    static let glassBorder = Color.white.opacity(0.11)
-    static let glassBorderFocus = Color(hex: 0x00F5D4, alpha: 0.35)
+// MARK: - Module stage background
+
+/// The full-bleed gradient stage behind a module: deep edges, a bright glow
+/// slightly above center, a soft vignette, and drifting particles. Drawn once
+/// by `RootView`; individual screens never draw their own background.
+struct ModuleBackground: View {
+    let theme: ModuleTheme
+    /// Brighter, breathing glow while the module is scanning or cleaning.
+    var active: Bool = false
+
+    @State private var pulse = false
+
+    var body: some View {
+        ZStack {
+            theme.deep
+
+            LinearGradient(stops: [
+                .init(color: theme.mid.opacity(0.90), location: 0.0),
+                .init(color: theme.mid.opacity(0.35), location: 0.55),
+                .init(color: .clear, location: 1.0),
+            ], startPoint: .top, endPoint: .bottom)
+
+            RadialGradient(
+                colors: [theme.glow.opacity(active ? 0.80 : 0.58), theme.glow.opacity(0)],
+                center: UnitPoint(x: 0.5, y: 0.38),
+                startRadius: 30,
+                endRadius: 660
+            )
+            .scaleEffect(pulse ? 1.05 : 0.96)
+            .animation(.easeInOut(duration: 2.6).repeatForever(autoreverses: true), value: pulse)
+
+            ParticleField(animating: active)
+
+            RadialGradient(colors: [.clear, .black.opacity(0.42)],
+                           center: UnitPoint(x: 0.5, y: 0.45),
+                           startRadius: 320, endRadius: 940)
+        }
+        .ignoresSafeArea()
+        .onAppear { pulse = true }
+    }
 }
 
 // MARK: - Frosted glass surface
 
 struct GlassCard: ViewModifier {
-    var radius: CGFloat = 18
+    var radius: CGFloat = 16
     var focused: Bool = false
 
     func body(content: Content) -> some View {
@@ -60,43 +127,13 @@ struct GlassCard: ViewModifier {
                 RoundedRectangle(cornerRadius: radius, style: .continuous)
                     .strokeBorder(focused ? Palette.glassBorderFocus : Palette.glassBorder, lineWidth: 1)
             )
-            .shadow(color: .black.opacity(0.30), radius: 24, y: 14)
+            .shadow(color: .black.opacity(0.22), radius: 20, y: 12)
     }
 }
 
 extension View {
-    func glassCard(radius: CGFloat = 18, focused: Bool = false) -> some View {
+    func glassCard(radius: CGFloat = 16, focused: Bool = false) -> some View {
         modifier(GlassCard(radius: radius, focused: focused))
-    }
-}
-
-// MARK: - Stage background (deep violet + spotlight + particles + vignette)
-
-struct StageBackground: View {
-    var glow: Bool = false
-    @State private var pulse = false
-
-    var body: some View {
-        ZStack {
-            LinearGradient(colors: [Palette.purpleTop, Palette.bg],
-                           startPoint: .top, endPoint: .bottom)
-
-            RadialGradient(
-                colors: [Palette.purpleGlow.opacity(glow ? 0.60 : 0.42), .clear],
-                center: UnitPoint(x: 0.5, y: 0.10),
-                startRadius: 40,
-                endRadius: 780
-            )
-            .scaleEffect(pulse ? 1.05 : 0.95)
-            .animation(.easeInOut(duration: 2.4).repeatForever(autoreverses: true), value: pulse)
-
-            ParticleField(animating: glow)
-
-            RadialGradient(colors: [.clear, .black.opacity(0.45)],
-                           center: .center, startRadius: 240, endRadius: 720)
-        }
-        .ignoresSafeArea()
-        .onAppear { pulse = true }
     }
 }
 
@@ -111,17 +148,17 @@ struct ParticleField: View {
     var animating: Bool
     private let particles: [StageParticle]
 
-    init(animating: Bool, count: Int = 40) {
+    init(animating: Bool, count: Int = 34) {
         self.animating = animating
         var rng = SystemRandomNumberGenerator()
         particles = (0..<count).map { _ in
             StageParticle(
                 x: .random(in: 0...1, using: &rng),
                 phase: .random(in: 0...1, using: &rng),
-                speed: .random(in: 0.008...0.036, using: &rng),
+                speed: .random(in: 0.008...0.032, using: &rng),
                 sway: .random(in: 0.2...1.1, using: &rng),
-                size: .random(in: 1.0...2.4, using: &rng),
-                baseOpacity: .random(in: 0.03...0.16, using: &rng),
+                size: .random(in: 0.9...2.2, using: &rng),
+                baseOpacity: .random(in: 0.03...0.13, using: &rng),
                 twinkle: .random(in: 0.3...1.4, using: &rng)
             )
         }

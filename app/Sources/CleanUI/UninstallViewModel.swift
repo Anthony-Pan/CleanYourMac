@@ -39,6 +39,14 @@ final class UninstallViewModel {
         selfBundleID = Bundle.main.bundleIdentifier
     }
 
+    /// Preloaded state for design previews (no disk access).
+    init(mockApps: [InstalledApp], runningBundleIDs: Set<String> = []) {
+        self.runningBundleIDs = runningBundleIDs
+        selfBundleID = nil
+        apps = mockApps
+        phase = .ready
+    }
+
     // MARK: - Derived
 
     /// Apps matching the search box, with already-removed ones dropped.

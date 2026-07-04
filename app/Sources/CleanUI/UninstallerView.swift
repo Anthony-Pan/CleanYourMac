@@ -10,18 +10,14 @@ struct UninstallerView: View {
     init(model: UninstallViewModel) { self.model = model }
 
     var body: some View {
-        ZStack {
-            StageBackground(glow: model.phase == .scanning)
+        VStack(spacing: 0) {
+            header
 
-            VStack(spacing: 0) {
-                header
-
-                switch model.phase {
-                case .idle, .scanning:
-                    loadingList
-                case .ready:
-                    appList
-                }
+            switch model.phase {
+            case .idle, .scanning:
+                loadingList
+            case .ready:
+                appList
             }
         }
         .navigationTitle("Uninstaller")
@@ -32,12 +28,12 @@ struct UninstallerView: View {
 
     private var header: some View {
         VStack(spacing: 14) {
-            VStack(spacing: 4) {
+            VStack(spacing: 6) {
                 Text("Uninstaller")
-                    .font(.system(size: 26, weight: .bold))
+                    .font(.system(size: 30, weight: .bold))
                     .foregroundStyle(Palette.ink)
                 Text("Remove an app together with the caches, preferences and support files it leaves behind.")
-                    .font(.callout)
+                    .font(.system(size: 13))
                     .foregroundStyle(Palette.muted)
                     .multilineTextAlignment(.center)
             }
@@ -47,10 +43,11 @@ struct UninstallerView: View {
             if model.phase == .ready {
                 Text("\(model.visibleApps.count) apps · \(ByteFormat.human(model.totalBundleBytes))")
                     .font(.caption)
-                    .foregroundStyle(Palette.muted.opacity(0.8))
+                    .foregroundStyle(Palette.muted)
             }
         }
-        .padding(.top, 30)
+        .frame(maxWidth: .infinity)
+        .padding(.top, 48)
         .padding(.horizontal, 22)
         .padding(.bottom, 16)
     }
@@ -63,7 +60,7 @@ struct UninstallerView: View {
             TextField("Search apps", text: $model.query)
                 .textFieldStyle(.plain)
                 .font(.system(size: 14))
-                .foregroundStyle(Palette.ink)
+                .foregroundStyle(.white)
             if !model.query.isEmpty {
                 Button { model.query = "" } label: {
                     Image(systemName: "xmark.circle.fill").foregroundStyle(Palette.muted)
@@ -73,8 +70,9 @@ struct UninstallerView: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 9)
-        .glassCard(radius: 12)
-        .frame(maxWidth: 420)
+        .background(Capsule().fill(.white.opacity(0.08)))
+        .overlay(Capsule().strokeBorder(Palette.glassBorder, lineWidth: 1))
+        .frame(maxWidth: 400)
     }
 
     // MARK: - Lists
@@ -82,10 +80,11 @@ struct UninstallerView: View {
     private var loadingList: some View {
         VStack(spacing: 12) {
             ForEach(0..<5, id: \.self) { _ in
-                RoundedRectangle(cornerRadius: 16)
-                    .fill(.white.opacity(0.04))
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(.white.opacity(0.05))
                     .frame(height: 66)
-                    .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(Palette.hair, lineWidth: 1))
+                    .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .strokeBorder(Palette.hair, lineWidth: 1))
             }
             Spacer()
         }
@@ -136,7 +135,7 @@ private struct AppUninstallRow: View {
                 expandedBody
             }
         }
-        .glassCard(radius: 16, focused: expanded)
+        .glassCard(radius: 14, focused: expanded)
     }
 
     private var header: some View {
@@ -183,11 +182,11 @@ private struct AppUninstallRow: View {
 
     @ViewBuilder private var statusBadge: some View {
         if app.isSystem {
-            Badge(text: "System", color: Palette.muted)
+            TagBadge(text: "System", color: Palette.muted)
         } else if model.isSelf(app) {
-            Badge(text: "This app", color: Palette.muted)
+            TagBadge(text: "This app", color: Palette.muted)
         } else if model.isRunning(app) {
-            Badge(text: "Running", color: Palette.champagne)
+            TagBadge(text: "Running", color: Palette.warn)
         }
     }
 
@@ -216,7 +215,7 @@ private struct AppUninstallRow: View {
     private func problemNotice(_ report: CleanReport) -> some View {
         let count = report.failed.count + report.blocked.count
         return HStack(alignment: .top, spacing: 10) {
-            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Palette.champagne)
+            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Palette.warn)
             VStack(alignment: .leading, spacing: 2) {
                 Text("\(count) item\(count == 1 ? "" : "s") couldn’t be moved to the Trash.")
                     .font(.callout).foregroundStyle(Palette.ink)
@@ -231,7 +230,7 @@ private struct AppUninstallRow: View {
 
     private var protectedNotice: some View {
         HStack(spacing: 10) {
-            Image(systemName: "lock.shield.fill").foregroundStyle(Palette.accent)
+            Image(systemName: "lock.shield.fill").foregroundStyle(.white.opacity(0.85))
             Text(app.isSystem
                  ? "This is a system app and is protected — it can’t be uninstalled here."
                  : "CleanYourMac can’t uninstall itself.")
@@ -246,7 +245,7 @@ private struct AppUninstallRow: View {
         LazyVStack(spacing: 0) {
             if model.isRunning(app) {
                 HStack(spacing: 8) {
-                    Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Palette.champagne)
+                    Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Palette.warn)
                     Text("“\(app.name)” is running. Quit it first so its settings aren’t rewritten.")
                         .font(.caption).foregroundStyle(Palette.ink2)
                     Spacer()
@@ -282,15 +281,15 @@ private struct AppUninstallRow: View {
         let disabled = model.selectedCount(for: app) == 0
         return Button { showConfirm = true } label: {
             Label("Move \(ByteFormat.human(model.selectedBytes(for: app))) to Trash", systemImage: "trash")
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(Color.black.opacity(0.85))
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(.white)
                 .padding(.horizontal, 16)
                 .padding(.vertical, 9)
-                .background(Capsule().fill(Palette.accentLinear))
-                .shadow(color: Palette.accent.opacity(disabled ? 0 : 0.5), radius: 12, y: 2)
+                .background(Capsule().fill(ModuleTheme.indigo.accentGradient))
+                .shadow(color: ModuleTheme.indigo.accent.opacity(disabled ? 0 : 0.5), radius: 12, y: 2)
         }
         .buttonStyle(.plain)
-        .opacity(disabled ? 0.4 : 1)
+        .opacity(disabled ? 0.45 : 1)
         .disabled(disabled)
         .confirmationDialog(
             "Move \(app.name) and \(model.selectedCount(for: app)) items (\(ByteFormat.human(model.selectedBytes(for: app)))) to the Trash?",
@@ -317,7 +316,7 @@ private struct LeftoverRow: View {
             Button(action: onToggle) {
                 Image(systemName: selected ? "checkmark.circle.fill" : "circle")
                     .font(.system(size: 18))
-                    .foregroundStyle(selected ? Palette.accent : .white.opacity(0.28))
+                    .foregroundStyle(selected ? .white : .white.opacity(0.28))
             }
             .buttonStyle(.plain)
 
@@ -327,7 +326,7 @@ private struct LeftoverRow: View {
                         .font(.callout)
                         .foregroundStyle(Palette.ink2)
                     if leftover.confidence == .medium {
-                        Badge(text: "review", color: Palette.champagne)
+                        TagBadge(text: "review", color: Palette.warn)
                     }
                 }
                 Text(leftover.url.path)
@@ -359,18 +358,6 @@ private struct LeftoverRow: View {
 }
 
 // MARK: - Small pieces
-
-private struct Badge: View {
-    let text: String
-    let color: Color
-    var body: some View {
-        Text(text)
-            .font(.system(size: 9, weight: .semibold))
-            .foregroundStyle(color)
-            .padding(.horizontal, 6).padding(.vertical, 2)
-            .background(Capsule().fill(color.opacity(0.15)))
-    }
-}
 
 /// The real Finder icon for an app bundle, cached by path so scrolling and
 /// search keystrokes don't re-hit `NSWorkspace` for rows that haven't changed.

@@ -1,10 +1,57 @@
 import SwiftUI
 import CleanCore
 
-/// A static, mock-data rendering of the full app (custom sidebar + Smart Scan
-/// card grid). Rendered off-screen via ImageRenderer for design review.
-public struct SnapshotPreview: View {
-    public init() {}
+/// Real app screens rendered with preloaded mock state (no disk access), for
+/// off-screen design snapshots via ImageRenderer. Each case composes exactly
+/// what `RootView` would show — the module stage, the sidebar rail, and the
+/// actual module view — so the render is the design, not a copy of it.
+public enum SnapshotScreen: String, CaseIterable {
+    case smartScanIdle, smartScanResults, uninstaller, largeFiles, privacyIdle
+
+    /// The full window (stage + rail + module view) at a fixed design size.
+    @MainActor
+    public var view: some View {
+        ZStack {
+            ModuleBackground(theme: section.theme, active: false)
+            HStack(spacing: 0) {
+                Sidebar(selection: .constant(section))
+                // Mirror RootView: the module view fills the space right of the rail.
+                content
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+        .frame(width: 1180, height: 780)
+        .environment(\.colorScheme, .dark)
+    }
+
+    private var section: AppSection {
+        switch self {
+        case .smartScanIdle, .smartScanResults: return .smartScan
+        case .uninstaller:                      return .uninstaller
+        case .largeFiles:                       return .largeFiles
+        case .privacyIdle:                      return .privacy
+        }
+    }
+
+    @MainActor
+    @ViewBuilder private var content: some View {
+        switch self {
+        case .smartScanIdle:
+            SmartScanView(model: ScanViewModel())
+        case .smartScanResults:
+            SmartScanView(model: ScanViewModel(mockGroups: Self.mockGroups(), expandFirst: false))
+        case .uninstaller:
+            UninstallerView(model: UninstallViewModel(
+                mockApps: Self.mockApps(),
+                runningBundleIDs: ["com.tinyspeck.slackmacgap"]))
+        case .largeFiles:
+            LargeFilesView(model: LargeFilesViewModel(mockFiles: Self.mockFiles()))
+        case .privacyIdle:
+            PrivacyView(model: PrivacyViewModel())
+        }
+    }
+
+    // MARK: - Mock data (plausible, deterministic, never touches the disk)
 
     private static func mockGroups() -> [ScanResultGroup] {
         func group(_ id: String, _ name: String, _ files: [(String, Int64)]) -> ScanResultGroup {
@@ -23,57 +70,38 @@ public struct SnapshotPreview: View {
         ]
     }
 
-    @State private var model = ScanViewModel(mockGroups: SnapshotPreview.mockGroups(), expandFirst: false)
-
-    public var body: some View {
-        HStack(spacing: 0) {
-            Sidebar(selection: .constant(.smartScan))
-            content
+    private static func mockApps() -> [InstalledApp] {
+        func app(_ name: String, _ bundleID: String?, _ version: String?,
+                 _ sizeBytes: Int64, system: Bool = false) -> InstalledApp {
+            InstalledApp(url: URL(fileURLWithPath: "/Applications/\(name).app"),
+                         name: name, bundleID: bundleID, version: version,
+                         sizeBytes: sizeBytes, isSystem: system)
         }
-        .frame(width: 980, height: 760)
-        .background(Palette.bg)
-        .environment(\.colorScheme, .dark)
+        return [
+            app("Docker", "com.docker.docker", "4.30.0", 2_840_000_000),
+            app("Google Chrome", "com.google.Chrome", "126.0.6478", 1_230_000_000),
+            app("Slack", "com.tinyspeck.slackmacgap", "4.39.90", 452_000_000),
+            app("Spotify", "com.spotify.client", "1.2.40", 386_000_000),
+            app("Safari", "com.apple.Safari", "17.5", 15_000_000, system: true),
+            app("zoom.us", "us.zoom.xos", "6.1.1", 158_000_000),
+        ]
     }
 
-    private var content: some View {
-        ZStack {
-            StageBackground(glow: false)
-            VStack(spacing: 0) {
-                VStack(spacing: 6) {
-                    Text("SMART SCAN")
-                        .font(.system(size: 11, weight: .semibold)).tracking(1.6)
-                        .foregroundStyle(Palette.muted)
-                    Text("\(ByteFormat.human(model.selectedBytes)) to reclaim")
-                        .font(.system(size: 34, weight: .bold, design: .rounded))
-                        .foregroundStyle(Palette.ink)
-                    Text("\(model.selectedItemCount) items across \(model.groups.count) categories")
-                        .font(.callout).foregroundStyle(Palette.muted)
-                }
-                .padding(.top, 46)
-                .padding(.bottom, 22)
-
-                LazyVGrid(columns: [GridItem(.flexible(), spacing: 16), GridItem(.flexible(), spacing: 16)], spacing: 16) {
-                    ForEach(model.groups) { g in
-                        CategoryGridCard(group: g, model: model) {}
-                    }
-                }
-                .padding(.horizontal, 28)
-
-                Spacer()
-
-                HStack {
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text("\(model.selectedItemCount) items selected")
-                            .font(.subheadline).foregroundStyle(Palette.ink)
-                        Text("Everything goes to the Trash — recoverable")
-                            .font(.caption).foregroundStyle(Palette.muted)
-                    }
-                    Spacer()
-                    CleanButton(size: model.selectedBytes, disabled: false) {}
-                }
-                .padding(16)
-                .background(Palette.bg.opacity(0.55))
-            }
+    private static func mockFiles() -> [LargeFile] {
+        func file(_ folder: String, _ name: String, _ sizeBytes: Int64,
+                  _ ageDays: Int, _ kind: FileKind) -> LargeFile {
+            let date = Date().addingTimeInterval(-Double(ageDays) * 86_400)
+            return LargeFile(url: URL(fileURLWithPath: "/Users/you/\(folder)/\(name)"),
+                             sizeBytes: sizeBytes, modificationDate: date,
+                             accessDate: date, kind: kind)
         }
+        return [
+            file("Downloads", "ubuntu-24.04.1-desktop-arm64.iso", 5_890_000_000, 410, .diskImage),
+            file("Downloads", "Xcode_15.4.dmg", 3_310_000_000, 290, .diskImage),
+            file("Movies", "keynote-rehearsal-4k.mov", 3_240_000_000, 95, .video),
+            file("Documents", "design-assets-2024.zip", 1_870_000_000, 240, .archive),
+            file("Music", "band-practice-master.aiff", 1_120_000_000, 530, .audio),
+            file("Movies", "drone-footage-croatia.mp4", 890_000_000, 60, .video),
+        ]
     }
 }

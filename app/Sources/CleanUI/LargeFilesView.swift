@@ -15,8 +15,6 @@ struct LargeFilesView: View {
 
     var body: some View {
         ZStack {
-            StageBackground(glow: busy)
-
             switch model.phase {
             case .idle, .scanning, .cleaning:
                 busyView
@@ -30,40 +28,62 @@ struct LargeFilesView: View {
         .task { if model.phase == .idle { await model.scan() } }
     }
 
-    // MARK: - Busy
+    // MARK: - Busy (idle / scanning / cleaning — no cancel API, spinner only)
 
     private var busyView: some View {
-        VStack(spacing: 16) {
-            ReclaimGauge(bytes: model.selectedBytes, scanning: true, done: false)
-            Text(model.phase == .cleaning ? "Moving to Trash…" : "Scanning your files…")
-                .foregroundStyle(Palette.muted)
+        VStack(spacing: 0) {
+            Spacer()
+
+            HeroBlob(theme: .teal, symbol: "doc.viewfinder", animating: true)
+
+            Text(model.phase == .cleaning ? "Moving to Trash…" : "Digging through your files…")
+                .font(.system(size: 26, weight: .semibold))
+                .foregroundStyle(.white)
+                .padding(.top, 28)
+
+            Spacer()
+
+            CircleActionButton(title: model.phase == .cleaning ? "Cleaning" : "Scanning",
+                               theme: .teal, ring: .progress, disabled: true) {}
+                .padding(.bottom, 36)
         }
+        .frame(maxWidth: .infinity)
     }
 
     // MARK: - Done
 
     private var doneView: some View {
-        VStack(spacing: 18) {
+        VStack(spacing: 0) {
+            Spacer()
+
             Image(systemName: "checkmark.circle.fill")
-                .font(.system(size: 72))
-                .foregroundStyle(Palette.accent)
-                .shadow(color: Palette.accent.opacity(0.5), radius: 20)
+                .font(.system(size: 64))
+                .foregroundStyle(.white)
+                .shadow(color: .black.opacity(0.25), radius: 12, y: 6)
+
             Text("Done!")
                 .font(.system(size: 30, weight: .bold, design: .rounded))
-                .foregroundStyle(Palette.ink)
+                .foregroundStyle(.white)
+                .padding(.top, 16)
+
             Text("Freed \(ByteFormat.human(model.lastReport?.freedBytes ?? 0)) · moved \(model.lastReport?.trashed.count ?? 0) files to Trash")
+                .font(.system(size: 13))
                 .foregroundStyle(Palette.muted)
+                .padding(.top, 6)
+
             if let report = model.lastReport, !report.failed.isEmpty || !report.blocked.isEmpty {
                 Text("\(report.failed.count + report.blocked.count) file(s) couldn’t be moved and were left untouched.")
                     .font(.caption)
-                    .foregroundStyle(Palette.champagne)
+                    .foregroundStyle(Palette.warn)
+                    .padding(.top, 4)
             }
-            Button("Scan Again") { Task { await model.scan() } }
-                .controlSize(.large)
-                .tint(Palette.accent)
-                .padding(.top, 6)
+
+            Spacer()
+
+            CircleActionButton(title: "Scan Again", theme: .teal) { Task { await model.scan() } }
+                .padding(.bottom, 36)
         }
-        .padding(40)
+        .frame(maxWidth: .infinity)
     }
 
     // MARK: - Results
@@ -78,7 +98,7 @@ struct LargeFilesView: View {
                 emptyState
             } else {
                 fileList
-                cleanBar
+                bottomAction
             }
         }
     }
@@ -89,10 +109,10 @@ struct LargeFilesView: View {
                 .font(.system(size: 11, weight: .semibold)).tracking(1.6)
                 .foregroundStyle(Palette.muted)
             Text("\(ByteFormat.human(model.visibleBytes)) in \(model.visibleFiles.count) files")
-                .font(.system(size: 30, weight: .bold, design: .rounded))
-                .foregroundStyle(Palette.ink)
+                .font(.system(size: 32, weight: .bold, design: .rounded))
+                .foregroundStyle(.white)
             Text("Your biggest files across Downloads, Documents, Desktop, Movies, Music and Pictures.")
-                .font(.callout)
+                .font(.system(size: 13))
                 .foregroundStyle(Palette.muted)
                 .multilineTextAlignment(.center)
         }
@@ -166,7 +186,7 @@ struct LargeFilesView: View {
             Text(text).font(.system(size: 12, weight: .medium))
             Image(systemName: "chevron.down").font(.system(size: 9, weight: .semibold))
         }
-        .foregroundStyle(Palette.ink2)
+        .foregroundStyle(.white)
         .padding(.horizontal, 12).padding(.vertical, 7)
         .background(Capsule().fill(.white.opacity(0.06)))
         .overlay(Capsule().strokeBorder(Palette.glassBorder, lineWidth: 1))
@@ -176,15 +196,15 @@ struct LargeFilesView: View {
         HStack(spacing: 9) {
             Image(systemName: "exclamationmark.shield.fill")
                 .font(.system(size: 12))
-                .foregroundStyle(Palette.champagne)
+                .foregroundStyle(Palette.warn)
             Text("These are your personal files. Nothing is selected for you — review each one. Removed files go to the Trash and can be restored.")
                 .font(.caption)
                 .foregroundStyle(Palette.ink2.opacity(0.9))
             Spacer(minLength: 0)
         }
         .padding(.horizontal, 12).padding(.vertical, 8)
-        .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Palette.champagne.opacity(0.10)))
-        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(Palette.champagne.opacity(0.25), lineWidth: 1))
+        .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(Palette.warn.opacity(0.10)))
+        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(Palette.warn.opacity(0.25), lineWidth: 1))
         .padding(.horizontal, 22)
         .padding(.bottom, 10)
     }
@@ -206,7 +226,7 @@ struct LargeFilesView: View {
                 }
             }
             .padding(.vertical, 4)
-            .glassCard(radius: 18)
+            .glassCard(radius: 16)
             .padding(.horizontal, 20)
             .padding(.bottom, 16)
         }
@@ -217,10 +237,10 @@ struct LargeFilesView: View {
             HStack(spacing: 10) {
                 Image(systemName: model.allVisibleSelected ? "checkmark.circle.fill" : "circle")
                     .font(.system(size: 18))
-                    .foregroundStyle(model.allVisibleSelected ? Palette.accent : .white.opacity(0.28))
+                    .foregroundStyle(model.allVisibleSelected ? Color.white : .white.opacity(0.28))
                 Text(model.allVisibleSelected ? "Deselect all shown" : "Select all shown")
                     .font(.callout.weight(.medium))
-                    .foregroundStyle(Palette.ink2)
+                    .foregroundStyle(.white)
                 Spacer()
                 Text("\(model.visibleFiles.count) files")
                     .font(.caption).foregroundStyle(Palette.muted)
@@ -231,20 +251,16 @@ struct LargeFilesView: View {
         .buttonStyle(.plain)
     }
 
-    private var cleanBar: some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 1) {
-                Text("\(model.selectedCount) files selected")
-                    .font(.subheadline).foregroundStyle(Palette.ink)
-                Text("Everything goes to the Trash — recoverable")
-                    .font(.caption).foregroundStyle(Palette.muted)
-            }
-            Spacer()
-            CleanButton(size: model.selectedBytes, disabled: model.selectedCount == 0) { showConfirm = true }
+    private var bottomAction: some View {
+        VStack(spacing: 10) {
+            Text("\(model.selectedCount) files · \(ByteFormat.human(model.selectedBytes)) selected")
+                .font(.system(size: 12))
+                .foregroundStyle(.white.opacity(0.8))
+
+            CircleActionButton(title: "Clean", theme: .teal,
+                               disabled: model.selectedCount == 0) { showConfirm = true }
         }
-        .padding(16)
-        .background(Palette.bg.opacity(0.55))
-        .overlay(alignment: .top) { Rectangle().fill(Palette.hair).frame(height: 1) }
+        .padding(.bottom, 24)
         .confirmationDialog(
             "Move \(model.selectedCount) files (\(ByteFormat.human(model.selectedBytes))) to the Trash?",
             isPresented: $showConfirm, titleVisibility: .visible
@@ -260,11 +276,11 @@ struct LargeFilesView: View {
         VStack(spacing: 12) {
             Spacer()
             Image(systemName: "doc.viewfinder")
-                .font(.system(size: 40)).foregroundStyle(Palette.muted.opacity(0.5))
+                .font(.system(size: 40)).foregroundStyle(.white.opacity(0.5))
             Text("No files match these filters.")
-                .foregroundStyle(Palette.muted)
+                .foregroundStyle(.white)
             Text("Try a smaller size or a wider age range.")
-                .font(.caption).foregroundStyle(Palette.muted.opacity(0.7))
+                .font(.caption).foregroundStyle(Palette.muted)
             Spacer()
         }
         .frame(maxWidth: .infinity)
@@ -286,17 +302,17 @@ private struct SegmentedPicker<Option: Identifiable & Equatable>: View {
                 Button { selection = option } label: {
                     Text(label(option))
                         .font(.system(size: 11.5, weight: on ? .semibold : .regular))
-                        .foregroundStyle(on ? Color.black.opacity(0.85) : Palette.ink2.opacity(0.8))
+                        .foregroundStyle(on ? Color.white : Color.white.opacity(0.75))
                         .padding(.horizontal, 10).padding(.vertical, 6)
                         .background(
-                            Capsule().fill(on ? AnyShapeStyle(Palette.accentLinear) : AnyShapeStyle(Color.clear))
+                            Capsule().fill(on ? Color.white.opacity(0.22) : Color.clear)
                         )
                 }
                 .buttonStyle(.plain)
             }
         }
         .padding(3)
-        .background(Capsule().fill(.white.opacity(0.05)))
+        .background(Capsule().fill(.white.opacity(0.06)))
         .overlay(Capsule().strokeBorder(Palette.glassBorder, lineWidth: 1))
     }
 }
@@ -314,7 +330,7 @@ private struct LargeFileRow: View {
             Button(action: onToggle) {
                 Image(systemName: selected ? "checkmark.circle.fill" : "circle")
                     .font(.system(size: 18))
-                    .foregroundStyle(selected ? Palette.accent : .white.opacity(0.28))
+                    .foregroundStyle(selected ? Color.white : .white.opacity(0.28))
             }
             .buttonStyle(.plain)
             .accessibilityLabel(file.name)
@@ -332,7 +348,7 @@ private struct LargeFileRow: View {
                         .foregroundStyle(Palette.ink2)
                         .lineLimit(1)
                         .truncationMode(.middle)
-                    if let age = ageBadge { Badge(text: age, color: Palette.champagne) }
+                    if let age = ageBadge { TagBadge(text: age) }
                 }
                 Text(file.path)
                     .font(.caption2)
@@ -366,19 +382,5 @@ private struct LargeFileRow: View {
         guard let days = file.ageDays(now: now), days >= 180 else { return nil }
         if days >= 365 { return "\(days / 365)y" }
         return "\(days / 30)mo"
-    }
-}
-
-// MARK: - Reused small badge (mirrors the uninstaller's)
-
-private struct Badge: View {
-    let text: String
-    let color: Color
-    var body: some View {
-        Text(text)
-            .font(.system(size: 9, weight: .semibold))
-            .foregroundStyle(color)
-            .padding(.horizontal, 6).padding(.vertical, 2)
-            .background(Capsule().fill(color.opacity(0.15)))
     }
 }
