@@ -36,6 +36,8 @@ public struct SafetyRejection: Error, Equatable, Sendable {
         case protectedPath         // is, or is an ancestor of, a protected location
         case isAllowedRootItself   // we clean *contents*, never the root directory
         case outsideAllowedRoots   // not inside any declared cleanable location
+        /// Matches a never-remove user-content name (passwords/autofill/bookmarks).
+        case protectedContent
     }
     public let reason: Reason
     public let path: String

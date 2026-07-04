@@ -1,8 +1,8 @@
 import Foundation
 
-/// Finds browser privacy traces (caches, history, cookies, sessions, download
-/// lists) under `~/Library` and, on request, moves the selected ones to the
-/// Trash.
+/// Finds browser and macOS privacy traces (caches, history, cookies, sessions,
+/// download lists, site data, recent items) under `~/Library` and, on request,
+/// moves the selected ones to the Trash.
 ///
 /// Safety and scope:
 ///
@@ -15,10 +15,12 @@ import Foundation
 ///    (`Web Data`), or bookmarks (`Bookmarks`, Firefox `places.sqlite`) — those
 ///    hold the user's own content, not disposable traces.
 ///  * Everything goes to the Trash, so any clear is fully recoverable.
+///  * Defense in depth: `clear(_:dryRun:)` re-validates every item's basename
+///    against the never-remove list before handing it to the `Cleaner` gate.
 ///
 /// Note: Safari's data lives under a location that requires Full Disk Access on
 /// modern macOS. Without it, Safari simply yields no items (the files aren't
-/// readable) — the UI surfaces a hint rather than failing.
+/// readable) — the VM detects this and surfaces a hint banner.
 public struct PrivacyScanner {
     /// The `~/Library` base to search. Injectable so tests can point it at a
     /// sandbox instead of the real home.
@@ -35,7 +37,7 @@ public struct PrivacyScanner {
 
     // MARK: - Scanning (read-only)
 
-    /// Every browser with at least one non-empty trace, largest total first.
+    /// Every browser/app with at least one non-empty trace, largest total first.
     public func scan() -> [PrivacyGroup] {
         PrivacyApp.allCases
             .map { PrivacyGroup(app: $0, items: items(for: $0)) }
@@ -43,53 +45,249 @@ public struct PrivacyScanner {
             .sorted { $0.totalBytes > $1.totalBytes }
     }
 
-    /// The concrete traces for one browser, skipping anything missing or empty.
+    /// The concrete traces for one browser or macOS subsystem, skipping anything
+    /// missing or empty.
     public func items(for app: PrivacyApp) -> [PrivacyItem] {
         switch app {
-        case .firefox: return firefoxItems()
-        case .safari:  return safariItems()
-        default:       return chromiumItems(for: app)
+        case .firefox:       return firefoxItems()
+        case .safari:        return safariItems()
+        case .systemRecents: return systemRecentsItems()
+        default:             return chromiumItems(for: app)
         }
     }
 
-    // MARK: - Chromium family (Chrome / Edge / Brave / Vivaldi)
+    // MARK: - Chromium family
 
-    /// Application-Support and Caches sub-path for each Chromium browser.
-    private static func chromiumVendor(_ app: PrivacyApp) -> String? {
+    /// Declarative description of one Chromium-family vendor's on-disk layout.
+    private struct ChromiumVendor {
+        /// Sub-paths relative to `~/Library/Application Support` — one per
+        /// release channel. Each is scanned independently.
+        let appSupportSubpaths: [String]
+        /// Sub-paths relative to `~/Library` for the browser's cache directories.
+        let cacheSubpaths: [String]
+        /// True for vendors (Opera, Opera GX) whose profile files live directly
+        /// in the vendor directory rather than inside a `Default/` subdirectory.
+        let flatProfile: Bool
+    }
+
+    /// The fixed, reviewable per-vendor layout table. Only paths listed here can
+    /// ever be scanned or removed — adding a new browser means editing this table.
+    private static func chromiumVendors(for app: PrivacyApp) -> ChromiumVendor? {
         switch app {
-        case .chrome:  return "Google/Chrome"
-        case .edge:    return "Microsoft Edge"
-        case .brave:   return "BraveSoftware/Brave-Browser"
-        case .vivaldi: return "Vivaldi"
-        default:       return nil
+        case .chrome:
+            return ChromiumVendor(
+                appSupportSubpaths: [
+                    "Google/Chrome",
+                    "Google/Chrome Beta",
+                    "Google/Chrome Dev",
+                    "Google/Chrome Canary",
+                ],
+                cacheSubpaths: [
+                    "Caches/Google/Chrome",
+                    "Caches/Google/Chrome Beta",
+                    "Caches/Google/Chrome Dev",
+                    "Caches/Google/Chrome Canary",
+                ],
+                flatProfile: false
+            )
+        case .edge:
+            return ChromiumVendor(
+                appSupportSubpaths: [
+                    "Microsoft Edge",
+                    "Microsoft Edge Beta",
+                    "Microsoft Edge Dev",
+                    "Microsoft Edge Canary",
+                ],
+                cacheSubpaths: [
+                    "Caches/Microsoft Edge",
+                    "Caches/Microsoft Edge Beta",
+                    "Caches/Microsoft Edge Dev",
+                    "Caches/Microsoft Edge Canary",
+                ],
+                flatProfile: false
+            )
+        case .brave:
+            return ChromiumVendor(
+                appSupportSubpaths: [
+                    "BraveSoftware/Brave-Browser",
+                    "BraveSoftware/Brave-Browser-Beta",
+                    "BraveSoftware/Brave-Browser-Nightly",
+                ],
+                cacheSubpaths: [
+                    "Caches/BraveSoftware/Brave-Browser",
+                    "Caches/BraveSoftware/Brave-Browser-Beta",
+                    "Caches/BraveSoftware/Brave-Browser-Nightly",
+                ],
+                flatProfile: false
+            )
+        case .vivaldi:
+            return ChromiumVendor(
+                appSupportSubpaths: ["Vivaldi"],
+                cacheSubpaths: ["Caches/Vivaldi"],
+                flatProfile: false
+            )
+        case .arc:
+            // Arc uses standard Chromium layout inside `Arc/User Data`.
+            // It may write its disk cache to either (or both) of two locations.
+            return ChromiumVendor(
+                appSupportSubpaths: ["Arc/User Data"],
+                cacheSubpaths: [
+                    "Caches/Arc",
+                    "Caches/company.thebrowser.Browser",
+                ],
+                flatProfile: false
+            )
+        case .chromium:
+            return ChromiumVendor(
+                appSupportSubpaths: ["Chromium"],
+                cacheSubpaths: ["Caches/Chromium"],
+                flatProfile: false
+            )
+        case .opera:
+            // Opera uses a flat layout: profile files live directly in the
+            // vendor directory (no `Default/` subdirectory).
+            return ChromiumVendor(
+                appSupportSubpaths: ["com.operasoftware.Opera"],
+                cacheSubpaths: ["Caches/com.operasoftware.Opera"],
+                flatProfile: true
+            )
+        case .operaGX:
+            return ChromiumVendor(
+                appSupportSubpaths: ["com.operasoftware.OperaGX"],
+                cacheSubpaths: ["Caches/com.operasoftware.OperaGX"],
+                flatProfile: true
+            )
+        default:
+            return nil
+        }
+    }
+
+    /// Returns all real profile directories inside `vendorDir`: `Default` plus
+    /// any directory whose name starts with `Profile `. The list is read from the
+    /// real filesystem, following the same sanctioned precedent as Firefox profile
+    /// enumeration. Results are sorted `Default` first, then alphabetically.
+    private static func chromiumProfiles(
+        in vendorDir: URL,
+        fm: FileManager = .default
+    ) -> [(url: URL, name: String)] {
+        let entries = (try? fm.contentsOfDirectory(
+            at: vendorDir,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        )) ?? []
+
+        var profiles: [(url: URL, name: String)] = []
+        for entry in entries {
+            let name = entry.lastPathComponent
+            var isDir: ObjCBool = false
+            guard fm.fileExists(atPath: entry.path, isDirectory: &isDir),
+                  isDir.boolValue else { continue }
+            if name == "Default" || name.hasPrefix("Profile ") {
+                profiles.append((entry, name))
+            }
+        }
+
+        return profiles.sorted { a, b in
+            if a.name == "Default" { return true }
+            if b.name == "Default" { return false }
+            return a.name < b.name
         }
     }
 
     private func chromiumItems(for app: PrivacyApp) -> [PrivacyItem] {
-        guard let vendor = Self.chromiumVendor(app) else { return [] }
-        let profile = libraryURL
-            .appendingPathComponent("Application Support")
-            .appendingPathComponent(vendor)
-            .appendingPathComponent("Default")
-        let cache = libraryURL.appendingPathComponent("Caches").appendingPathComponent(vendor)
-
+        guard let vendor = Self.chromiumVendors(for: app) else { return [] }
+        let appSupport = libraryURL.appendingPathComponent("Application Support")
         var out: [PrivacyItem] = []
-        add(&out, app, .caches, cache)
 
-        let history = profile.appendingPathComponent("History")
-        if add(&out, app, .history, history) { addSidecars(&out, app, .history, of: history) }
-
-        // Newer Chromium keeps cookies under Default/Network; older builds under Default.
-        let networkCookies = profile.appendingPathComponent("Network/Cookies")
-        let legacyCookies = profile.appendingPathComponent("Cookies")
-        if add(&out, app, .cookies, networkCookies) {
-            addSidecars(&out, app, .cookies, of: networkCookies)
-        } else if add(&out, app, .cookies, legacyCookies) {
-            addSidecars(&out, app, .cookies, of: legacyCookies)
+        // Per-vendor cache directories (all under ~/Library/Caches).
+        for cachePath in vendor.cacheSubpaths {
+            add(&out, app, .caches, libraryURL.appendingPathComponent(cachePath))
         }
 
-        add(&out, app, .sessions, profile.appendingPathComponent("Sessions"))
+        // Scan each release-channel directory.
+        for subpath in vendor.appSupportSubpaths {
+            let vendorDir = appSupport.appendingPathComponent(subpath)
+
+            if vendor.flatProfile {
+                // Opera / Opera GX: vendor directory is the profile root.
+                scanChromiumProfile(into: &out, app: app, profileDir: vendorDir, context: nil)
+            } else {
+                // Standard Chromium layout: Default + Profile N.
+                let profiles = Self.chromiumProfiles(in: vendorDir)
+                for profile in profiles {
+                    // Non-Default profiles get a context badge in the UI.
+                    let ctx: String? = profile.name == "Default" ? nil : profile.name
+                    scanChromiumProfile(into: &out, app: app, profileDir: profile.url, context: ctx)
+                }
+            }
+        }
+
         return out
+    }
+
+    /// Scans one Chromium profile directory for all supported trace kinds.
+    private func scanChromiumProfile(
+        into out: inout [PrivacyItem],
+        app: PrivacyApp,
+        profileDir: URL,
+        context: String?
+    ) {
+        // ── History and related visit/UI data ──────────────────────────────
+        let history = profileDir.appendingPathComponent("History")
+        if add(&out, app, .history, history, context: context) {
+            addSidecars(&out, app, .history, of: history, context: context)
+        }
+        add(&out, app, .history, profileDir.appendingPathComponent("Visited Links"), context: context)
+
+        let topSites = profileDir.appendingPathComponent("Top Sites")
+        if add(&out, app, .history, topSites, context: context) {
+            addSidecars(&out, app, .history, of: topSites, context: context)
+        }
+
+        let shortcuts = profileDir.appendingPathComponent("Shortcuts")
+        if add(&out, app, .history, shortcuts, context: context) {
+            addSidecars(&out, app, .history, of: shortcuts, context: context)
+        }
+
+        let mediaHistory = profileDir.appendingPathComponent("Media History")
+        if add(&out, app, .history, mediaHistory, context: context) {
+            addSidecars(&out, app, .history, of: mediaHistory, context: context)
+        }
+
+        let predictor = profileDir.appendingPathComponent("Network Action Predictor")
+        if add(&out, app, .history, predictor, context: context) {
+            addSidecars(&out, app, .history, of: predictor, context: context)
+        }
+
+        let favicons = profileDir.appendingPathComponent("Favicons")
+        if add(&out, app, .history, favicons, context: context) {
+            addSidecars(&out, app, .history, of: favicons, context: context)
+        }
+
+        // ── Cookies — modern (Network/Cookies) or legacy (Cookies) ────────
+        let networkCookies = profileDir.appendingPathComponent("Network/Cookies")
+        let legacyCookies  = profileDir.appendingPathComponent("Cookies")
+        if add(&out, app, .cookies, networkCookies, context: context) {
+            addSidecars(&out, app, .cookies, of: networkCookies, context: context)
+        } else if add(&out, app, .cookies, legacyCookies, context: context) {
+            addSidecars(&out, app, .cookies, of: legacyCookies, context: context)
+        }
+
+        // ── Session / tab state ────────────────────────────────────────────
+        add(&out, app, .sessions, profileDir.appendingPathComponent("Sessions"), context: context)
+        // Legacy single-file session formats (older Chromium builds).
+        for name in ["Current Session", "Last Session", "Current Tabs", "Last Tabs"] {
+            add(&out, app, .sessions, profileDir.appendingPathComponent(name), context: context)
+        }
+
+        // ── Per-profile caches ─────────────────────────────────────────────
+        add(&out, app, .caches, profileDir.appendingPathComponent("GPUCache"), context: context)
+        add(&out, app, .caches, profileDir.appendingPathComponent("Code Cache"), context: context)
+
+        // ── Site data (opt-in — clearing may sign the user out) ────────────
+        for name in ["Local Storage", "Session Storage", "IndexedDB", "Service Worker"] {
+            add(&out, app, .siteData, profileDir.appendingPathComponent(name), context: context)
+        }
     }
 
     // MARK: - Firefox
@@ -101,19 +299,49 @@ public struct PrivacyScanner {
         let fm = FileManager.default
         var out: [PrivacyItem] = []
 
-        // Cache is stored per-Firefox (not per-profile path we walk), one item.
+        // Cache is stored per-Firefox-install, outside per-profile directories.
         add(&out, .firefox, .caches, libraryURL.appendingPathComponent("Caches/Firefox"))
 
-        let profiles = (try? fm.contentsOfDirectory(at: profilesRoot, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])) ?? []
-        for profile in profiles {
+        let allEntries = (try? fm.contentsOfDirectory(
+            at: profilesRoot,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        )) ?? []
+
+        // Only actual profile directories (not stray files).
+        let profiles = allEntries.filter { url in
             var isDir: ObjCBool = false
-            guard fm.fileExists(atPath: profile.path, isDirectory: &isDir), isDir.boolValue else { continue }
-            // History lives in places.sqlite alongside BOOKMARKS — never offered.
-            let cookies = profile.appendingPathComponent("cookies.sqlite")
-            if add(&out, .firefox, .cookies, cookies) { addSidecars(&out, .firefox, .cookies, of: cookies) }
-            add(&out, .firefox, .sessions, profile.appendingPathComponent("sessionstore.jsonlz4"))
-            add(&out, .firefox, .sessions, profile.appendingPathComponent("sessionstore-backups"))
+            return fm.fileExists(atPath: url.path, isDirectory: &isDir) && isDir.boolValue
         }
+
+        // Show the profile folder name as a context badge only when there is
+        // more than one profile, following the same sanctioned pattern as
+        // Chromium multi-profile enumeration.
+        let useContext = profiles.count > 1
+
+        for profile in profiles {
+            let ctx: String? = useContext ? profile.lastPathComponent : nil
+
+            // Cookies database and its SQLite sidecars.
+            let cookies = profile.appendingPathComponent("cookies.sqlite")
+            if add(&out, .firefox, .cookies, cookies, context: ctx) {
+                addSidecars(&out, .firefox, .cookies, of: cookies, context: ctx)
+            }
+
+            // Session state.
+            add(&out, .firefox, .sessions,
+                profile.appendingPathComponent("sessionstore.jsonlz4"), context: ctx)
+            add(&out, .firefox, .sessions,
+                profile.appendingPathComponent("sessionstore-backups"), context: ctx)
+
+            // Site data: offline web app store and per-origin storage.
+            let webappsStore = profile.appendingPathComponent("webappsstore.sqlite")
+            if add(&out, .firefox, .siteData, webappsStore, context: ctx) {
+                addSidecars(&out, .firefox, .siteData, of: webappsStore, context: ctx)
+            }
+            add(&out, .firefox, .siteData, profile.appendingPathComponent("storage"), context: ctx)
+        }
+
         return out
     }
 
@@ -122,21 +350,83 @@ public struct PrivacyScanner {
     private func safariItems() -> [PrivacyItem] {
         let safari = libraryURL.appendingPathComponent("Safari")
         var out: [PrivacyItem] = []
+
+        // Browser-level cache and per-session favicon cache.
         add(&out, .safari, .caches, libraryURL.appendingPathComponent("Caches/com.apple.Safari"))
+        add(&out, .safari, .caches, safari.appendingPathComponent("Favicon Cache"))
+
+        // History database (plus SQLite sidecars) and Top Sites list.
         let history = safari.appendingPathComponent("History.db")
         if add(&out, .safari, .history, history) { addSidecars(&out, .safari, .history, of: history) }
+        add(&out, .safari, .history, safari.appendingPathComponent("TopSites.plist"))
+
+        // Download history (the record, not the downloaded files themselves).
         add(&out, .safari, .downloads, safari.appendingPathComponent("Downloads.plist"))
+
+        // Session / tab state restored on next launch.
+        add(&out, .safari, .sessions, safari.appendingPathComponent("LastSession.plist"))
+        add(&out, .safari, .sessions, safari.appendingPathComponent("RecentlyClosedTabs.plist"))
+
+        // Cookies — stored inside Safari's App Sandbox container. Requires FDA.
+        let containerCookies = libraryURL
+            .appendingPathComponent("Containers/com.apple.Safari/Data/Library/Cookies/Cookies.binarycookies")
+        add(&out, .safari, .cookies, containerCookies)
+
+        // Site data stored per-origin by WebKit.
+        add(&out, .safari, .siteData, safari.appendingPathComponent("LocalStorage"))
+        add(&out, .safari, .siteData, safari.appendingPathComponent("Databases"))
+
+        return out
+    }
+
+    // MARK: - macOS Recent Items
+
+    /// Scans the shared-file-list directory that macOS uses to maintain the
+    /// recent-documents, recent-applications, and recent-servers menus. The sfl2/
+    /// sfl3 extension varies by macOS version — we match by filename prefix so
+    /// the scanner is robust across versions.
+    private func systemRecentsItems() -> [PrivacyItem] {
+        let sharedFileLists = libraryURL
+            .appendingPathComponent("Application Support")
+            .appendingPathComponent("com.apple.sharedfilelist")
+        var out: [PrivacyItem] = []
+
+        let entries = (try? FileManager.default.contentsOfDirectory(
+            at: sharedFileLists,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        )) ?? []
+
+        for entry in entries {
+            let name = entry.lastPathComponent
+            if name.hasPrefix("com.apple.LSSharedFileList.RecentDocuments") {
+                add(&out, .systemRecents, .recentDocuments, entry)
+            } else if name.hasPrefix("com.apple.LSSharedFileList.RecentApplications") {
+                add(&out, .systemRecents, .recentApplications, entry)
+            } else if name.hasPrefix("com.apple.LSSharedFileList.RecentServers") ||
+                      name.hasPrefix("com.apple.LSSharedFileList.RecentHosts") {
+                add(&out, .systemRecents, .recentServers, entry)
+            } else if name == "ApplicationRecentDocuments" {
+                // The entire per-app recent-files directory as a single item —
+                // clearing it is atomic and avoids partial state.
+                add(&out, .systemRecents, .appRecents, entry)
+            }
+        }
+
         return out
     }
 
     // MARK: - Helpers
 
-    /// File names that must NEVER be offered, matched case-insensitively. These
-    /// hold the user's own content — saved passwords, autofill/cards, and
-    /// bookmarks (including the Firefox `places.sqlite` that stores history *and*
-    /// bookmarks together). Defense in depth: the search tables above already
-    /// avoid these paths, but this guard guarantees that even a future edit to
-    /// those tables can never turn one of them into a removable item.
+    /// File basenames that must NEVER be offered, compared case-insensitively
+    /// after normalisation (see `normalizeBasename`). These hold the user's own
+    /// content — saved passwords, autofill/cards, and bookmarks (including the
+    /// Firefox `places.sqlite` that stores history *and* bookmarks together).
+    ///
+    /// Defense in depth: the search tables above already avoid these paths, but
+    /// this guard guarantees that even a future edit to those tables can never
+    /// turn one of them into a removable item. `clear(_:dryRun:)` applies a
+    /// second check against this set before passing items to the Cleaner gate.
     private static let neverRemoveBasenames: Set<String> = [
         // Saved passwords / credentials.
         "login data", "login data-journal",
@@ -144,21 +434,48 @@ public struct PrivacyScanner {
         "logins.json", "logins-backup.json", "key3.db", "key4.db",
         // Autofill, payment cards, and other saved form data.
         "web data", "web data-journal",
+        // Safari autofill database.
+        "form values",
+        // Firefox autofill, permissions, and credential stores.
+        "formhistory.sqlite", "signons.sqlite",
+        "cert8.db", "cert9.db", "permissions.sqlite",
         // Bookmarks, and the Firefox DB that also stores them alongside history.
         "bookmarks", "bookmarks.bak",
         "places.sqlite", "places.sqlite-wal", "places.sqlite-shm",
+        // Firefox favicons database — embedded within places and tied to bookmarks.
+        "favicons.sqlite",
     ]
+
+    /// Returns the canonical form used for denylist comparison: lowercased with
+    /// any trailing SQLite journal suffix (`-wal`, `-shm`, `-journal`) removed,
+    /// so `Login Data-wal` is treated identically to `Login Data`.
+    private static func normalizeBasename(_ name: String) -> String {
+        var s = name.lowercased()
+        for suffix in ["-wal", "-shm", "-journal"] where s.hasSuffix(suffix) {
+            s = String(s.dropLast(suffix.count))
+            break
+        }
+        return s
+    }
 
     /// Append a `PrivacyItem` if `url` exists, has non-zero size, and is not on
     /// the never-remove list. Returns whether an item was added (used to pick
     /// the first of alternative paths).
     @discardableResult
-    private func add(_ out: inout [PrivacyItem], _ app: PrivacyApp, _ kind: PrivacyItemKind, _ url: URL) -> Bool {
-        guard !Self.neverRemoveBasenames.contains(url.lastPathComponent.lowercased()) else { return false }
+    private func add(
+        _ out: inout [PrivacyItem],
+        _ app: PrivacyApp,
+        _ kind: PrivacyItemKind,
+        _ url: URL,
+        context: String? = nil
+    ) -> Bool {
+        guard !Self.neverRemoveBasenames.contains(
+            Self.normalizeBasename(url.lastPathComponent)
+        ) else { return false }
         guard FileManager.default.fileExists(atPath: url.path) else { return false }
         let size = Scanner.allocatedSize(of: url)
         guard size > 0 else { return false }
-        out.append(PrivacyItem(app: app, kind: kind, url: url, sizeBytes: size))
+        out.append(PrivacyItem(app: app, kind: kind, url: url, sizeBytes: size, context: context))
         return true
     }
 
@@ -168,25 +485,60 @@ public struct PrivacyScanner {
     /// leave recent history/cookies readable in the orphaned sidecar — the exact
     /// data the user asked to erase — so we clear them together. Each sidecar
     /// sits beside its database inside an already-allowed root.
-    private func addSidecars(_ out: inout [PrivacyItem], _ app: PrivacyApp, _ kind: PrivacyItemKind, of dbURL: URL) {
+    private func addSidecars(
+        _ out: inout [PrivacyItem],
+        _ app: PrivacyApp,
+        _ kind: PrivacyItemKind,
+        of dbURL: URL,
+        context: String? = nil
+    ) {
         let dir = dbURL.deletingLastPathComponent()
         let base = dbURL.lastPathComponent
         for suffix in ["-wal", "-shm", "-journal"] {
-            add(&out, app, kind, dir.appendingPathComponent(base + suffix))
+            add(&out, app, kind, dir.appendingPathComponent(base + suffix), context: context)
         }
     }
 
     // MARK: - Removal
 
     /// Move the given traces to the Trash (or, in `dryRun`, report what *would*
-    /// happen). Every path is re-validated by the shared `Cleaner`/`SafetyPolicy`
-    /// gate immediately before disposal.
+    /// happen). Every path is validated in two stages:
+    ///
+    ///  1. Pre-flight denylist check (this method): any item whose normalised
+    ///     basename is on the never-remove list is blocked with `.protectedContent`
+    ///     before reaching the Cleaner — defense in depth against stale or crafted
+    ///     `PrivacyItem` values.
+    ///  2. `SafetyPolicy` gate (inside `Cleaner`): every remaining item must live
+    ///     strictly inside a declared allowed root.
     public func clear(_ items: [PrivacyItem], dryRun: Bool) -> CleanReport {
-        let policy = SafetyPolicy(allowedRoots: allowedRoots())
-        let scanItems = items.map {
-            ScanItem(url: $0.url, categoryID: "privacy-\($0.app.rawValue)", sizeBytes: $0.sizeBytes, modificationDate: nil)
+        var report = CleanReport(dryRun: dryRun)
+        var safeItems: [PrivacyItem] = []
+
+        for item in items {
+            if Self.neverRemoveBasenames.contains(
+                Self.normalizeBasename(item.url.lastPathComponent)
+            ) {
+                report.blocked.append(
+                    SafetyRejection(reason: .protectedContent, path: item.url.path)
+                )
+            } else {
+                safeItems.append(item)
+            }
         }
-        return Cleaner(policy: policy, disposer: disposer).clean(scanItems, dryRun: dryRun)
+
+        let policy = SafetyPolicy(allowedRoots: allowedRoots())
+        let scanItems = safeItems.map {
+            ScanItem(url: $0.url, categoryID: "privacy-\($0.app.rawValue)",
+                     sizeBytes: $0.sizeBytes, modificationDate: nil)
+        }
+        let inner = Cleaner(policy: policy, disposer: disposer).clean(scanItems, dryRun: dryRun)
+
+        report.trashed   = inner.trashed
+        report.blocked  += inner.blocked
+        report.failed    = inner.failed
+        report.freedBytes = inner.freedBytes
+
+        return report
     }
 
     /// The fixed, declarative set of directories whose contents the Privacy
@@ -197,22 +549,42 @@ public struct PrivacyScanner {
     ///
     /// Critically, this is *not* derived from the items being cleared — doing so
     /// would let any item define its own allowed root and defeat the gate. The
-    /// Firefox profile directories are the one dynamic part, and they are read
-    /// from the real on-disk layout, never from item paths.
+    /// Chromium and Firefox profile directories are the one dynamic part, and they
+    /// are read from the real on-disk layout, never from item paths.
     func allowedRoots() -> [URL] {
         let fm = FileManager.default
-        let caches = libraryURL.appendingPathComponent("Caches")
+        let caches    = libraryURL.appendingPathComponent("Caches")
         let appSupport = libraryURL.appendingPathComponent("Application Support")
 
         // All browser caches live directly under ~/Library/Caches. This is the
         // one broad root, and it is cache-only — it never contains documents.
         var roots: [URL] = [caches]
 
-        // Chromium profile directories (history/cookies/sessions live here).
-        for vendor in ["Google/Chrome", "Microsoft Edge", "BraveSoftware/Brave-Browser", "Vivaldi"] {
-            let def = appSupport.appendingPathComponent(vendor).appendingPathComponent("Default")
-            roots.append(def)
-            roots.append(def.appendingPathComponent("Network"))   // modern cookies location
+        // Standard Chromium-family vendors: enumerate real profile directories
+        // (Default + Profile N) from disk for each release channel, add each
+        // profile dir plus its Network subdir (modern cookie location).
+        let standardChromiumApps: [PrivacyApp] = [.chrome, .edge, .brave, .vivaldi, .arc, .chromium]
+        for app in standardChromiumApps {
+            guard let vendor = Self.chromiumVendors(for: app) else { continue }
+            for subpath in vendor.appSupportSubpaths {
+                let vendorDir = appSupport.appendingPathComponent(subpath)
+                for profile in Self.chromiumProfiles(in: vendorDir, fm: fm) {
+                    roots.append(profile.url)
+                    roots.append(profile.url.appendingPathComponent("Network"))
+                }
+            }
+        }
+
+        // Flat-profile Chromium vendors (Opera, Opera GX): the vendor directory
+        // itself is the profile root.
+        let flatChromiumApps: [PrivacyApp] = [.opera, .operaGX]
+        for app in flatChromiumApps {
+            guard let vendor = Self.chromiumVendors(for: app) else { continue }
+            for subpath in vendor.appSupportSubpaths {
+                let vendorDir = appSupport.appendingPathComponent(subpath)
+                roots.append(vendorDir)
+                roots.append(vendorDir.appendingPathComponent("Network"))
+            }
         }
 
         // Firefox: each real profile directory (dynamic names, read from disk).
@@ -221,8 +593,16 @@ public struct PrivacyScanner {
             at: ffProfiles, includingPropertiesForKeys: nil, options: [.skipsHiddenFiles])) ?? []
         roots.append(contentsOf: profiles)
 
-        // Safari (History.db / Downloads.plist live directly under ~/Library/Safari).
+        // Safari — History.db / Downloads.plist / session plists live here.
         roots.append(libraryURL.appendingPathComponent("Safari"))
+
+        // Safari cookies are sandboxed in the app container; requires FDA.
+        roots.append(
+            libraryURL.appendingPathComponent("Containers/com.apple.Safari/Data/Library/Cookies")
+        )
+
+        // macOS Recent Items shared-file-list directory.
+        roots.append(appSupport.appendingPathComponent("com.apple.sharedfilelist"))
 
         return roots
     }

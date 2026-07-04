@@ -41,18 +41,109 @@ public struct LargeFile: Identifiable, Sendable, Hashable {
         self.kind = kind
     }
 
-    /// Whole days since last modification, or `nil` when the date is unknown.
-    /// The "age" a file is judged by (modification date is far more reliable
-    /// than access date on modern macOS, where atime updates are throttled).
-    public func ageDays(now: Date = Date()) -> Int? {
-        guard let modificationDate else { return nil }
-        return max(0, Int(now.timeIntervalSince(modificationDate) / 86_400))
+    /// The most recent of `modificationDate` and `accessDate`. This is the date
+    /// used to judge how "old" a file is. Using the later of the two is
+    /// deliberately conservative — a recently *read* file is not old, so fewer
+    /// files qualify as old (safer). Returns `nil` when neither date is known.
+    public var lastUsedDate: Date? {
+        switch (modificationDate, accessDate) {
+        case let (m?, a?): return max(m, a)
+        case let (m?, nil): return m
+        case let (nil, a?): return a
+        case (nil, nil): return nil
+        }
     }
 
-    /// True if the file hasn't been modified in at least `days` days.
+    /// Whole days since the file was last used (the more recent of modification
+    /// date and access date), or `nil` when neither date is known. Judging age by
+    /// the most recent of the two dates is conservative — a recently read file is
+    /// not "old", so fewer files qualify.
+    public func ageDays(now: Date = Date()) -> Int? {
+        guard let lastUsedDate else { return nil }
+        return max(0, Int(now.timeIntervalSince(lastUsedDate) / 86_400))
+    }
+
+    /// True if the file hasn't been used (modified or accessed) in at least
+    /// `days` days. Uses `lastUsedDate` (the more recent of modified/accessed) so
+    /// a file that was read recently is never judged old.
     public func isOlder(thanDays days: Int, now: Date = Date()) -> Bool {
         guard let age = ageDays(now: now) else { return false }
         return age >= days
+    }
+}
+
+// MARK: - Scan location policy
+
+/// Guards which folders a user may add as custom scan roots.
+///
+/// Safety rationale: this prevents obviously dangerous directories (system
+/// folders, ~/Library, home root, etc.) from being enrolled before the user
+/// even starts a scan. The per-file `SafetyPolicy` gate still re-validates
+/// every path at removal time — this is an early, user-friendly layer on top.
+public enum ScanLocationPolicy {
+    /// Returns a human-readable English refusal reason if `url` must not be
+    /// added as a scan root, or `nil` when the folder is acceptable.
+    ///
+    /// Validates after canonicalizing (resolving symlinks) so a symlink cannot
+    /// smuggle in a protected path.
+    public static func validate(_ url: URL) -> String? {
+        let fm = FileManager.default
+        let canonical = url.canonicalized
+
+        // Must exist and be a directory.
+        var isDir: ObjCBool = false
+        guard fm.fileExists(atPath: canonical.path, isDirectory: &isDir) else {
+            return "This folder doesn't exist."
+        }
+        guard isDir.boolValue else {
+            return "Please choose a folder, not a file."
+        }
+
+        let path = canonical.path
+
+        // Reject filesystem root.
+        if path == "/" {
+            return "The filesystem root cannot be a scan location."
+        }
+
+        // Reject system-protected trees (exact match or anything inside them).
+        let systemRoots = [
+            "/System", "/Library", "/usr", "/bin", "/sbin",
+            "/etc", "/var", "/private", "/opt", "/cores",
+        ]
+        for root in systemRoots {
+            if path == root || path.hasPrefix(root + "/") {
+                return "System folders cannot be added as scan locations."
+            }
+        }
+
+        // Reject /Users and /Applications themselves; subfolders are fine.
+        if path == "/Users" || path == "/Applications" {
+            return "Choose a specific folder inside \(canonical.lastPathComponent), not the folder itself."
+        }
+
+        let home = fm.homeDirectoryForCurrentUser.canonicalized
+        let homePath = home.path
+
+        // Reject the home directory itself (the default scan already covers its
+        // content subfolders — pointing at the whole home would be too broad).
+        if path == homePath {
+            return "The default scan already covers your home's content folders — pick a subfolder instead."
+        }
+
+        // Reject ~/Library and anything inside it.
+        let libraryPath = home.appendingPathComponent("Library").canonicalized.path
+        if path == libraryPath || path.hasPrefix(libraryPath + "/") {
+            return "Library folders are excluded from scanning for safety."
+        }
+
+        // Reject ~/.Trash and anything inside it.
+        let trashPath = home.appendingPathComponent(".Trash").canonicalized.path
+        if path == trashPath || path.hasPrefix(trashPath + "/") {
+            return "The Trash cannot be added as a scan location."
+        }
+
+        return nil
     }
 }
 
