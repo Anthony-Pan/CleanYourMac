@@ -2,8 +2,9 @@ import XCTest
 @testable import CleanCore
 
 /// Tests for the Large & Old Files engine: size/age filtering, type inference,
-/// the "skip proxies" rules, and the safety invariants of removal — all inside
-/// a temp sandbox so they never touch the real disk or Trash.
+/// the "skip proxies" rules, scan-location policy, cancellation, and the safety
+/// invariants of removal — all inside a temp sandbox so they never touch the
+/// real disk or Trash.
 final class FileFinderTests: XCTestCase {
     var sandbox: URL!
     var downloads: URL!
@@ -30,6 +31,9 @@ final class FileFinderTests: XCTestCase {
         return FileFinder(roots: roots, policy: SafetyPolicy(allowedRoots: roots), disposer: disposer)
     }
 
+    /// Creates a file of `mb` megabytes. When `ageDays` is given, BOTH the
+    /// modification and access dates are backdated — age is judged by
+    /// `lastUsedDate` (the later of the two), so an old file needs both old.
     @discardableResult
     private func makeFile(_ url: URL, mb: Int, ageDays: Int? = nil) throws -> URL {
         try fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -37,8 +41,22 @@ final class FileFinderTests: XCTestCase {
         if let ageDays {
             let date = Date(timeIntervalSinceNow: -Double(ageDays) * 86_400)
             try fm.setAttributes([.modificationDate: date], ofItemAtPath: url.path)
+            try setAccessDate(url, to: date)
         }
         return url
+    }
+
+    /// Creates a tiny throwaway file (used to bulk up entry counts).
+    private func makeTinyFile(_ url: URL) throws {
+        try fm.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        XCTAssertTrue(fm.createFile(atPath: url.path, contents: Data([0x41])))
+    }
+
+    private func setAccessDate(_ url: URL, to date: Date) throws {
+        var mutable = url
+        var values = URLResourceValues()
+        values.contentAccessDate = date
+        try mutable.setResourceValues(values)
     }
 
     // MARK: - Discovery + filters
@@ -72,6 +90,23 @@ final class FileFinderTests: XCTestCase {
         XCTAssertFalse(names.contains("fresh.bin"), "files newer than the age threshold are excluded")
     }
 
+    /// The "old" judgment uses `lastUsedDate` — the LATER of modified/opened.
+    /// A file modified long ago but read recently is in use, not old. This is
+    /// deliberately conservative: fewer files qualify as removal candidates.
+    func test_recentlyOpenedFileIsNeverJudgedOld() throws {
+        let url = try makeFile(downloads.appendingPathComponent("touched.bin"), mb: 200, ageDays: 400)
+        try setAccessDate(url, to: Date(timeIntervalSinceNow: -2 * 86_400))
+
+        let old = finder().find(minSizeBytes: 100 * 1_000_000, olderThanDays: 180)
+        XCTAssertFalse(old.contains { $0.name == "touched.bin" },
+                       "a recently opened file must not qualify as old")
+
+        let any = finder().find(minSizeBytes: 100 * 1_000_000)
+        let file = try XCTUnwrap(any.first { $0.name == "touched.bin" })
+        XCTAssertFalse(file.isOlder(thanDays: 180))
+        XCTAssertNotNil(file.lastUsedDate)
+    }
+
     func test_inferKindFromExtension() throws {
         try makeFile(downloads.appendingPathComponent("movie.mp4"), mb: 200)
         try makeFile(downloads.appendingPathComponent("archive.zip"), mb: 200)
@@ -100,6 +135,86 @@ final class FileFinderTests: XCTestCase {
         let files = finder().find(minSizeBytes: 100 * 1_000_000)
         XCTAssertFalse(files.contains { $0.path.contains(".app/") },
                        "package internals must not be enumerated as loose files")
+    }
+
+    // MARK: - Excluded directories
+
+    func test_excludedDirsAreNeverWalked() throws {
+        // A "home"-like root that CONTAINS a Library subtree: even though the
+        // scan root covers it, the excluded dir must never be walked.
+        let homeRoot = sandbox.appendingPathComponent("home")
+        let library = homeRoot.appendingPathComponent("Library")
+        try makeFile(library.appendingPathComponent("big-cache.bin"), mb: 300)
+        try makeFile(homeRoot.appendingPathComponent("movie.mkv"), mb: 200)
+
+        let roots = [homeRoot]
+        let engine = FileFinder(roots: roots,
+                                policy: SafetyPolicy(allowedRoots: roots),
+                                disposer: RecordingDisposer(),
+                                excludedDirs: [library])
+        let files = engine.find(minSizeBytes: 100 * 1_000_000)
+        let names = Set(files.map(\.name))
+        XCTAssertTrue(names.contains("movie.mkv"))
+        XCTAssertFalse(names.contains("big-cache.bin"), "excluded dirs must never be walked")
+    }
+
+    // MARK: - Cancellation + progress
+
+    func test_stopHaltsWalkEarly() throws {
+        // Hundreds of tiny files → the cancel hook (polled every ~256 entries)
+        // must stop the walk long before every entry is examined.
+        for i in 0..<600 {
+            try makeTinyFile(downloads.appendingPathComponent("tiny/t\(i).bin"))
+        }
+        var finalScanned = 0
+        let partial = finder().find(minSizeBytes: 100 * 1_000_000,
+                                    shouldContinue: { false },
+                                    onProgress: { scanned, _ in finalScanned = scanned })
+        XCTAssertLessThan(finalScanned, 600, "a refused shouldContinue must stop the walk early")
+        XCTAssertTrue(partial.isEmpty || partial.count < 600)
+    }
+
+    func test_progressReportsFoundCount() throws {
+        try makeFile(downloads.appendingPathComponent("big.bin"), mb: 200)
+        var lastFound = -1
+        _ = finder().find(minSizeBytes: 100 * 1_000_000,
+                          onProgress: { _, found in lastFound = found })
+        XCTAssertEqual(lastFound, 1, "the final progress callback reports the found count")
+    }
+
+    // MARK: - Scan location policy
+
+    func test_scanLocationPolicyRejectsSystemAndLibraryPaths() throws {
+        let home = fm.homeDirectoryForCurrentUser
+        let rejected: [URL] = [
+            URL(fileURLWithPath: "/"),
+            URL(fileURLWithPath: "/System"),
+            URL(fileURLWithPath: "/Users"),
+            home,
+            home.appendingPathComponent("Library"),
+            home.appendingPathComponent("Library/Caches"),
+            sandbox.appendingPathComponent("does-not-exist"),
+        ]
+        for url in rejected {
+            XCTAssertNotNil(ScanLocationPolicy.validate(url),
+                            "\(url.path) must be refused as a scan location")
+        }
+    }
+
+    func test_scanLocationPolicyRejectsPlainFiles() throws {
+        let file = try makeFile(downloads.appendingPathComponent("file.bin"), mb: 1)
+        XCTAssertNotNil(ScanLocationPolicy.validate(file), "files are not scan locations")
+    }
+
+    func test_scanLocationPolicyAcceptsNormalFolderUnderHome() throws {
+        // A real (temporary) folder inside the actual home directory — the
+        // canonical "user adds a project folder" case. Cleaned up afterwards.
+        let dir = fm.homeDirectoryForCurrentUser
+            .appendingPathComponent("cym-test-location-\(UUID().uuidString)")
+        try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: dir) }
+
+        XCTAssertNil(ScanLocationPolicy.validate(dir))
     }
 
     // MARK: - Removal safety
@@ -152,5 +267,11 @@ final class FileFinderTests: XCTestCase {
             XCTAssertTrue(root.path.hasPrefix(home.path), "default roots live under the home folder: \(root.path)")
             XCTAssertFalse(root.path.contains("/Library"), "default roots never include ~/Library")
         }
+    }
+
+    func test_defaultExcludedDirsCoverLibraryAndTrash() {
+        let paths = FileFinder.defaultExcludedDirs.map(\.path)
+        XCTAssertTrue(paths.contains { $0.hasSuffix("/Library") })
+        XCTAssertTrue(paths.contains { $0.hasSuffix("/.Trash") })
     }
 }

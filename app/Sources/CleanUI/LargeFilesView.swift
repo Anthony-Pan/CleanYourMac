@@ -1,13 +1,17 @@
 import SwiftUI
 import AppKit
+import QuickLook
 import CleanCore
 
 /// The Large & Old Files screen: find the biggest, least-used files in the
-/// user's content folders and move the ones they pick to the Trash. Nothing is
-/// ever selected automatically — these are the user's own documents.
+/// user's content folders (plus any folders they add) and move the ones they
+/// pick to the Trash. Nothing is ever selected automatically — these are the
+/// user's own documents.
 struct LargeFilesView: View {
     @Bindable var model: LargeFilesViewModel
     @State private var showConfirm = false
+    /// Drives the system Quick Look panel (space-bar style preview).
+    @State private var previewURL: URL?
 
     init(model: LargeFilesViewModel) { self.model = model }
 
@@ -26,9 +30,21 @@ struct LargeFilesView: View {
         }
         .navigationTitle("Large & Old Files")
         .task { if model.phase == .idle { await model.scan() } }
+        .alert("Can’t add that folder", isPresented: locationErrorShown) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(model.locationError ?? "")
+        }
     }
 
-    // MARK: - Busy (idle / scanning / cleaning — no cancel API, spinner only)
+    private var locationErrorShown: Binding<Bool> {
+        Binding(
+            get: { model.locationError != nil },
+            set: { if !$0 { model.locationError = nil } }
+        )
+    }
+
+    // MARK: - Busy (scanning is cancellable; cleaning is not)
 
     private var busyView: some View {
         VStack(spacing: 0) {
@@ -41,11 +57,25 @@ struct LargeFilesView: View {
                 .foregroundStyle(.white)
                 .padding(.top, 28)
 
+            if model.phase != .cleaning, model.progressScanned > 0 {
+                Text("Checked \(model.progressScanned) files · found \(model.progressFound) large ones")
+                    .font(.system(size: 12))
+                    .foregroundStyle(Palette.muted)
+                    .monospacedDigit()
+                    .padding(.top, 8)
+            }
+
             Spacer()
 
-            CircleActionButton(title: model.phase == .cleaning ? "Cleaning" : "Scanning",
-                               theme: .teal, ring: .progress, disabled: true) {}
-                .padding(.bottom, 36)
+            if model.phase == .cleaning {
+                CircleActionButton(title: "Cleaning", theme: .teal, ring: .progress, disabled: true) {}
+                    .padding(.bottom, 36)
+            } else {
+                // Stopping keeps everything found so far — partial results, not
+                // a blank screen.
+                CircleActionButton(title: "Stop", theme: .teal, ring: .progress) { model.stopScan() }
+                    .padding(.bottom, 36)
+            }
         }
         .frame(maxWidth: .infinity)
     }
@@ -111,7 +141,7 @@ struct LargeFilesView: View {
             Text("\(ByteFormat.human(model.visibleBytes)) in \(model.visibleFiles.count) files")
                 .font(.system(size: 32, weight: .bold, design: .rounded))
                 .foregroundStyle(.white)
-            Text("Your biggest files across Downloads, Documents, Desktop, Movies, Music and Pictures.")
+            Text(headerSubtitle)
                 .font(.system(size: 13))
                 .foregroundStyle(Palette.muted)
                 .multilineTextAlignment(.center)
@@ -121,23 +151,67 @@ struct LargeFilesView: View {
         .padding(.bottom, 16)
     }
 
+    private var headerSubtitle: String {
+        let base = "Your biggest files across Downloads, Documents, Desktop, Movies, Music and Pictures"
+        let extras = model.customRoots.count
+        if extras == 0 { return base + "." }
+        return base + " plus \(extras) folder\(extras == 1 ? "" : "s") you added."
+    }
+
+    /// Two scrollable control rows: primary filters on top; search, view and
+    /// location tools below. Split so nothing clips at the 920 pt minimum width.
     private var filterBar: some View {
-        // Horizontally scrollable so the four controls never clip at the
-        // minimum window width (they don't all fit on one line at 920pt).
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 10) {
-                SegmentedPicker(selection: $model.sizeFilter,
-                                options: LargeFilesViewModel.SizeFilter.allCases,
-                                label: \.label)
-                SegmentedPicker(selection: $model.ageFilter,
-                                options: LargeFilesViewModel.AgeFilter.allCases,
-                                label: \.label)
-                typeMenu
-                sortMenu
+        VStack(spacing: 8) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 10) {
+                    SegmentedPicker(selection: $model.sizeFilter,
+                                    options: LargeFilesViewModel.SizeFilter.allCases,
+                                    label: \.label)
+                    SegmentedPicker(selection: $model.ageFilter,
+                                    options: LargeFilesViewModel.AgeFilter.allCases,
+                                    label: \.label)
+                }
+                .padding(.horizontal, 22)
             }
-            .padding(.horizontal, 22)
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 10) {
+                    searchField
+                    typeMenu
+                    sortMenu
+                    groupingMenu
+                    locationsMenu
+                    if model.ignoredCount > 0 { ignoredPill }
+                    rescanPill
+                }
+                .padding(.horizontal, 22)
+            }
         }
         .padding(.bottom, 10)
+    }
+
+    private var searchField: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 11))
+                .foregroundStyle(Palette.muted)
+            TextField("Search files", text: $model.searchText)
+                .textFieldStyle(.plain)
+                .font(.system(size: 12))
+                .foregroundStyle(.white)
+                .frame(width: 150)
+            if !model.searchText.isEmpty {
+                Button { model.searchText = "" } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 11))
+                        .foregroundStyle(Palette.muted)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, 10).padding(.vertical, 6)
+        .background(Capsule().fill(.white.opacity(0.06)))
+        .overlay(Capsule().strokeBorder(Palette.glassBorder, lineWidth: 1))
     }
 
     private var typeMenu: some View {
@@ -180,6 +254,79 @@ struct LargeFilesView: View {
         .fixedSize()
     }
 
+    private var groupingMenu: some View {
+        Menu {
+            ForEach(LargeFilesViewModel.Grouping.allCases) { grouping in
+                Button {
+                    model.grouping = grouping
+                } label: {
+                    Label(grouping.label, systemImage: model.grouping == grouping ? "checkmark" : "")
+                }
+            }
+        } label: {
+            pillLabel(systemImage: "rectangle.grid.1x2",
+                      text: model.grouping == .kind ? "By kind" : "Flat list")
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+    }
+
+    private var locationsMenu: some View {
+        Menu {
+            Section("Always scanned") {
+                Text("Downloads, Documents, Desktop, Movies, Music, Pictures")
+            }
+            if !model.customRoots.isEmpty {
+                Section("Added by you — click to remove") {
+                    ForEach(model.customRoots, id: \.path) { root in
+                        Button("Remove “\(root.lastPathComponent)”") {
+                            model.removeCustomRoot(root)
+                        }
+                    }
+                }
+            }
+            Divider()
+            Button("Add Folder…") { pickFolder() }
+        } label: {
+            pillLabel(systemImage: "folder",
+                      text: model.customRoots.isEmpty
+                          ? "Locations"
+                          : "Locations +\(model.customRoots.count)")
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+    }
+
+    /// Ignored files are only hidden from the list — never touched on disk.
+    private var ignoredPill: some View {
+        Menu {
+            Text("Ignored files are hidden from results, never touched.")
+            Button("Show them again") { model.clearIgnoreList() }
+        } label: {
+            pillLabel(systemImage: "eye.slash", text: "\(model.ignoredCount) ignored")
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+    }
+
+    private var rescanPill: some View {
+        GlassPill(title: "Rescan", systemImage: "arrow.clockwise") {
+            Task { await model.scan() }
+        }
+    }
+
+    private func pickFolder() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.prompt = "Add"
+        panel.message = "Choose a folder to include in the Large & Old Files scan."
+        if panel.runModal() == .OK, let url = panel.url {
+            model.addCustomRoot(url)
+        }
+    }
+
     private func pillLabel(systemImage: String, text: String) -> some View {
         HStack(spacing: 6) {
             Image(systemName: systemImage).font(.system(size: 12))
@@ -209,26 +356,61 @@ struct LargeFilesView: View {
         .padding(.bottom, 10)
     }
 
+    // MARK: - File list (flat or grouped by kind)
+
     private var fileList: some View {
         ScrollView {
             LazyVStack(spacing: 0) {
                 selectAllRow
                 Rectangle().fill(Palette.hair).frame(height: 1).padding(.leading, 44)
-                ForEach(Array(model.visibleFiles.enumerated()), id: \.element.id) { index, file in
-                    LargeFileRow(file: file,
-                                 selected: model.isSelected(file.id),
-                                 now: Date()) {
-                        model.toggle(file.id)
+
+                if model.grouping == .kind {
+                    ForEach(model.sections, id: \.kind) { section in
+                        sectionHeader(section.kind, files: section.files)
+                        rows(section.files)
                     }
-                    if index < model.visibleFiles.count - 1 {
-                        Rectangle().fill(Palette.hair).frame(height: 1).padding(.leading, 44)
-                    }
+                } else {
+                    rows(model.visibleFiles)
                 }
             }
             .padding(.vertical, 4)
             .glassCard(radius: 16)
             .padding(.horizontal, 20)
             .padding(.bottom, 16)
+        }
+        .quickLookPreview($previewURL)
+    }
+
+    private func sectionHeader(_ kind: FileKind, files: [LargeFile]) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: kind.symbol)
+                .font(.system(size: 12))
+                .foregroundStyle(.white.opacity(0.75))
+                .frame(width: 20)
+            Text(kind.titleEN)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.white.opacity(0.85))
+            Spacer()
+            Text("\(files.count) files · \(ByteFormat.human(files.reduce(0) { $0 + $1.sizeBytes }))")
+                .font(.caption2)
+                .foregroundStyle(Palette.muted)
+        }
+        .padding(.vertical, 7).padding(.horizontal, 14)
+        .background(.white.opacity(0.04))
+    }
+
+    @ViewBuilder
+    private func rows(_ files: [LargeFile]) -> some View {
+        ForEach(Array(files.enumerated()), id: \.element.id) { index, file in
+            LargeFileRow(file: file,
+                         selected: model.isSelected(file.id),
+                         now: Date(),
+                         onToggle: { model.toggle(file.id) },
+                         onPreview: { previewURL = file.url },
+                         onIgnore: { model.ignore(file) })
+            if index < files.count - 1 {
+                Rectangle().fill(Palette.hair).frame(height: 1).padding(.leading, 44)
+            }
         }
     }
 
@@ -277,10 +459,15 @@ struct LargeFilesView: View {
             Spacer()
             Image(systemName: "doc.viewfinder")
                 .font(.system(size: 40)).foregroundStyle(.white.opacity(0.5))
-            Text("No files match these filters.")
+            Text(model.searchText.isEmpty ? "No files match these filters." : "No files match your search.")
                 .foregroundStyle(.white)
             Text("Try a smaller size or a wider age range.")
                 .font(.caption).foregroundStyle(Palette.muted)
+            Text("Files synced to iCloud Drive are skipped for safety, and macOS may ask for permission before Desktop & Documents can be read.")
+                .font(.caption2)
+                .foregroundStyle(Palette.muted.opacity(0.8))
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 420)
             Spacer()
         }
         .frame(maxWidth: .infinity)
@@ -324,6 +511,8 @@ private struct LargeFileRow: View {
     let selected: Bool
     let now: Date
     let onToggle: () -> Void
+    let onPreview: () -> Void
+    let onIgnore: () -> Void
 
     var body: some View {
         HStack(spacing: 10) {
@@ -359,9 +548,24 @@ private struct LargeFileRow: View {
 
             Spacer()
 
-            Text(ByteFormat.human(file.sizeBytes))
-                .font(.caption).monospacedDigit()
-                .foregroundStyle(Palette.muted)
+            VStack(alignment: .trailing, spacing: 1) {
+                Text(ByteFormat.human(file.sizeBytes))
+                    .font(.caption).monospacedDigit()
+                    .foregroundStyle(Palette.muted)
+                if let usage = usageCaption {
+                    Text(usage)
+                        .font(.system(size: 9))
+                        .foregroundStyle(Palette.muted.opacity(0.7))
+                }
+            }
+
+            Button(action: onPreview) {
+                Image(systemName: "eye")
+                    .font(.system(size: 12))
+                    .foregroundStyle(Palette.muted.opacity(0.8))
+            }
+            .buttonStyle(.plain)
+            .help("Quick Look")
 
             Button {
                 NSWorkspace.shared.activateFileViewerSelecting([file.url])
@@ -375,12 +579,36 @@ private struct LargeFileRow: View {
         }
         .padding(.vertical, 6)
         .padding(.horizontal, 14)
+        .contentShape(Rectangle())
+        .contextMenu {
+            Button("Quick Look", action: onPreview)
+            Button("Reveal in Finder") {
+                NSWorkspace.shared.activateFileViewerSelecting([file.url])
+            }
+            Button("Copy Path") {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(file.path, forType: .string)
+            }
+            Divider()
+            // Ignoring only hides the file from results — it is never touched.
+            Button("Ignore This File", action: onIgnore)
+        }
     }
 
-    /// Show an age chip only for genuinely old files ("2y", "8mo", "140d").
+    /// Show an age chip only for genuinely unused files ("2y", "8mo", "180d"),
+    /// judged by the later of modified/opened.
     private var ageBadge: String? {
         guard let days = file.ageDays(now: now), days >= 180 else { return nil }
         if days >= 365 { return "\(days / 365)y" }
         return "\(days / 30)mo"
+    }
+
+    /// A short honest caption of when the file was last modified or opened.
+    private var usageCaption: String? {
+        guard let days = file.ageDays(now: now) else { return nil }
+        if days == 0 { return "Used today" }
+        if days < 30 { return "Used \(days)d ago" }
+        if days < 365 { return "Unused \(days / 30)mo" }
+        return "Unused \(days / 365)y"
     }
 }

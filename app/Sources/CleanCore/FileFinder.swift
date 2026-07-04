@@ -1,7 +1,8 @@
 import Foundation
 
 /// Finds large files in the user's *content* folders (Downloads, Documents,
-/// Desktop, Movies, Music, Pictures) and, on request, moves selected ones to
+/// Desktop, Movies, Music, Pictures — plus any folders the user explicitly
+/// added, see `ScanLocationPolicy`) and, on request, moves selected ones to
 /// the Trash.
 ///
 /// Safety notes — this feature touches the user's own documents, so it is the
@@ -16,6 +17,8 @@ import Foundation
 ///  * Symlinks, aliases, packages (`.app`, `.photoslibrary`, …) and iCloud /
 ///    dataless placeholder files are skipped — we never offer to remove a
 ///    proxy for something that lives elsewhere.
+///  * `excludedDirs` (default: `~/Library`, `~/.Trash`) are never walked, even
+///    when a scan root contains them.
 public struct FileFinder {
     /// Folders to walk. Their contents (recursively) are candidates.
     public let roots: [URL]
@@ -23,17 +26,24 @@ public struct FileFinder {
     public let policy: SafetyPolicy
     /// How a removal is carried out (Trash in production; recording in tests).
     public let disposer: FileDisposer
+    /// Directories the walk never descends into, even inside a scan root.
+    /// Belt-and-braces: `.skipsHiddenFiles` already skips `~/Library` (hidden
+    /// flag) and dot-directories, but if a user adds a custom root above them —
+    /// or the hidden flag is absent — we must still never walk them.
+    public let excludedDirs: [URL]
 
     public init(
         roots: [URL] = FileFinder.defaultRoots,
         policy: SafetyPolicy? = nil,
-        disposer: FileDisposer = TrashDisposer()
+        disposer: FileDisposer = TrashDisposer(),
+        excludedDirs: [URL] = FileFinder.defaultExcludedDirs
     ) {
         self.roots = roots
         // The allowlist is precisely these roots: a file is only removable when
         // it lives strictly inside one of them.
         self.policy = policy ?? SafetyPolicy(allowedRoots: roots)
         self.disposer = disposer
+        self.excludedDirs = excludedDirs.map { $0.canonicalized }
     }
 
     /// The user-content folders scanned by default. Deliberately excludes
@@ -44,28 +54,62 @@ public struct FileFinder {
             .map { home.appendingPathComponent($0) }
     }
 
+    /// Never walked regardless of the chosen roots: the user's `~/Library`
+    /// (caches/settings belong to Smart Scan, documents don't live there) and
+    /// the Trash (its contents are already scheduled for deletion).
+    public static var defaultExcludedDirs: [URL] {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        return [
+            home.appendingPathComponent("Library"),
+            home.appendingPathComponent(".Trash"),
+        ]
+    }
+
     // MARK: - Scanning (read-only)
 
     private static let resourceKeys: Set<URLResourceKey> = [
-        .isRegularFileKey, .isSymbolicLinkKey, .isPackageKey, .isAliasFileKey,
+        .isRegularFileKey, .isDirectoryKey, .isSymbolicLinkKey, .isPackageKey, .isAliasFileKey,
         .totalFileAllocatedSizeKey, .fileAllocatedSizeKey, .fileSizeKey,
         .contentModificationDateKey, .contentAccessDateKey, .contentTypeKey,
         .isUbiquitousItemKey, .ubiquitousItemDownloadingStatusKey,
     ]
 
-    /// Every regular file at least `minSizeBytes` big (optionally also older than
-    /// `olderThanDays`), largest first. Never follows symlinks, never descends
-    /// into packages, and skips iCloud placeholders. Returns at most `limit`.
+    /// How often (in enumerated entries) the cancellation hook is polled.
+    private static let cancelCheckInterval = 256
+    /// How often (in enumerated entries) the progress hook is invoked.
+    private static let progressInterval = 512
+
+    /// Every regular file at least `minSizeBytes` big (optionally also unused
+    /// for at least `olderThanDays` days — judged by `LargeFile.lastUsedDate`,
+    /// the later of modified/opened), largest first. Never follows symlinks,
+    /// never descends into packages or `excludedDirs`, and skips iCloud
+    /// placeholders. Returns at most `limit`.
+    ///
+    /// - Parameters:
+    ///   - shouldContinue: polled every ~256 entries; returning `false` stops
+    ///     the walk early and returns everything found so far (still sorted).
+    ///     Lets a UI Stop button land on partial results instead of nothing.
+    ///   - onProgress: called every ~512 entries with (entries examined,
+    ///     candidates found so far). Called on the scanning thread — hop to the
+    ///     main actor before touching UI state.
     public func find(
         minSizeBytes: Int64,
         olderThanDays: Int? = nil,
         now: Date = Date(),
-        limit: Int? = nil
+        limit: Int? = nil,
+        shouldContinue: (() -> Bool)? = nil,
+        onProgress: ((_ scannedCount: Int, _ foundCount: Int) -> Void)? = nil
     ) -> [LargeFile] {
         let fm = FileManager.default
         var found: [LargeFile] = []
+        var scanned = 0
+        var stopped = false
 
-        for root in roots {
+        for rawRoot in roots {
+            guard !stopped else { break }
+            // Walk from the canonical root so every yielded path is symlink-free
+            // and comparable against the (also canonical) excluded dirs.
+            let root = rawRoot.canonicalized
             var isDir: ObjCBool = false
             guard fm.fileExists(atPath: root.path, isDirectory: &isDir), isDir.boolValue else { continue }
 
@@ -79,6 +123,22 @@ public struct FileFinder {
             ) else { continue }
 
             for case let url as URL in enumerator {
+                scanned += 1
+                if scanned % Self.cancelCheckInterval == 0, shouldContinue?() == false {
+                    stopped = true
+                    break
+                }
+                if scanned % Self.progressInterval == 0 {
+                    onProgress?(scanned, found.count)
+                }
+
+                // Never walk into an excluded directory (e.g. ~/Library inside
+                // a custom root above home).
+                if isExcluded(url) {
+                    enumerator.skipDescendants()
+                    continue
+                }
+
                 guard let file = candidate(url, minSizeBytes: minSizeBytes, olderThanDays: olderThanDays, now: now) else {
                     continue
                 }
@@ -86,9 +146,19 @@ public struct FileFinder {
             }
         }
 
+        onProgress?(scanned, found.count)
         found.sort { $0.sizeBytes > $1.sizeBytes }
         if let limit, found.count > limit { return Array(found.prefix(limit)) }
         return found
+    }
+
+    /// True when `url` is one of the excluded directories or lives inside one.
+    /// Compared on standardized paths (excluded dirs are canonicalized at init;
+    /// enumerated URLs come from the real walk, so they contain no links we'd
+    /// follow).
+    private func isExcluded(_ url: URL) -> Bool {
+        let path = url.standardizedFileURL.path
+        return excludedDirs.contains { path == $0.path || path.hasPrefix($0.path + "/") }
     }
 
     /// Evaluate one enumerated URL. Returns a `LargeFile` when it is a real,
@@ -110,22 +180,26 @@ public struct FileFinder {
         let size = Int64(v.totalFileAllocatedSize ?? v.fileAllocatedSize ?? v.fileSize ?? 0)
         guard size >= minSizeBytes else { return nil }
 
-        let modDate = v.contentModificationDate
-        if let olderThanDays, olderThanDays > 0 {
-            guard let modDate, now.timeIntervalSince(modDate) / 86_400 >= Double(olderThanDays) else { return nil }
-        }
-
         // SAFETY GATE: must live strictly inside an allowed root and pass every
         // other policy check (symlink-resolved, not protected, not too shallow).
         guard policy.validate(url) == nil else { return nil }
 
-        return LargeFile(
+        let file = LargeFile(
             url: url,
             sizeBytes: size,
-            modificationDate: modDate,
+            modificationDate: v.contentModificationDate,
             accessDate: v.contentAccessDate,
             kind: FileKind.infer(contentType: v.contentType, url: url)
         )
+
+        // Age filter shares `LargeFile.isOlder` so engine and UI agree on what
+        // "old" means: unused (neither modified nor opened) for the given span.
+        // Files with no known dates never qualify as old.
+        if let olderThanDays, olderThanDays > 0 {
+            guard file.isOlder(thanDays: olderThanDays, now: now) else { return nil }
+        }
+
+        return file
     }
 
     // MARK: - Removal

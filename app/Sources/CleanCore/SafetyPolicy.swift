@@ -2,7 +2,7 @@ import Foundation
 
 // MARK: - URL path helpers (canonical, symlink-resolved comparisons)
 
-extension URL {
+public extension URL {
     /// Fully resolved, standardized form. Resolves symlinks so an item cannot
     /// "escape" an allowed root by being a symlink pointing elsewhere.
     var canonicalized: URL {
