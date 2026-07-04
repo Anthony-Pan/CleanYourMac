@@ -498,6 +498,37 @@ final class PrivacyScannerTests: XCTestCase {
         XCTAssertTrue(fm.fileExists(atPath: walFile.path), "Login Data-wal must survive")
     }
 
+    func test_operaConfigStoresNeverOfferedNorClearable() throws {
+        // Opera's flat layout puts config stores (Preferences, Local State) and
+        // Bookmarks directly inside the allowed root, so the denylist is the
+        // layer that keeps them safe: never offered by scan, and blocked with
+        // .protectedContent even when hand-crafted items target them via clear().
+        let opera = "Application Support/com.operasoftware.Opera"
+        try makeFile("\(opera)/History")
+        let prefs = try makeFile("\(opera)/Preferences")
+        let localState = try makeFile("\(opera)/Local State")
+        let bookmarks = try makeFile("\(opera)/Bookmarks")
+
+        let group = try XCTUnwrap(scanner().scan().first { $0.app == .opera })
+        let names = Set(group.items.map { $0.url.lastPathComponent })
+        for forbidden in ["Preferences", "Local State", "Bookmarks"] {
+            XCTAssertFalse(names.contains(forbidden), "\(forbidden) must never be offered")
+        }
+
+        let disposer = RecordingDisposer()
+        let crafted = [prefs, localState, bookmarks].map {
+            PrivacyItem(app: .opera, kind: .caches, url: $0, sizeBytes: 1_024)
+        }
+        let report = scanner(disposer).clear(crafted, dryRun: false)
+
+        XCTAssertEqual(report.blocked.filter { $0.reason == .protectedContent }.count, 3,
+                       "all three config/content stores must be blocked")
+        XCTAssertTrue(disposer.disposed.isEmpty)
+        for url in [prefs, localState, bookmarks] {
+            XCTAssertTrue(fm.fileExists(atPath: url.path), "\(url.lastPathComponent) must survive")
+        }
+    }
+
     // MARK: - Safari container cookies
 
     func test_safariContainerCookiesFoundWhenFixtureExists() throws {

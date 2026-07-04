@@ -436,6 +436,11 @@ public struct PrivacyScanner {
         "web data", "web data-journal",
         // Safari autofill database.
         "form values",
+        // Browser configuration stores. Never traces — and for the flat-profile
+        // vendors (Opera/Opera GX) they sit directly inside an allowed root, so
+        // the denylist is what keeps a crafted item away from them.
+        "preferences", "secure preferences", "local state",
+        "prefs.js", "user.js",
         // Firefox autofill, permissions, and credential stores.
         "formhistory.sqlite", "signons.sqlite",
         "cert8.db", "cert9.db", "permissions.sqlite",

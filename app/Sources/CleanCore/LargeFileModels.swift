@@ -99,7 +99,10 @@ public enum ScanLocationPolicy {
             return "Please choose a folder, not a file."
         }
 
-        let path = canonical.path
+        // All comparisons are case-insensitive: APFS is case-insensitive by
+        // default, so "/SYSTEM" and "/System" are the same directory — a
+        // case-sensitive check would wave the former through.
+        let path = canonical.path.lowercased()
 
         // Reject filesystem root.
         if path == "/" {
@@ -108,7 +111,7 @@ public enum ScanLocationPolicy {
 
         // Reject system-protected trees (exact match or anything inside them).
         let systemRoots = [
-            "/System", "/Library", "/usr", "/bin", "/sbin",
+            "/system", "/library", "/usr", "/bin", "/sbin",
             "/etc", "/var", "/private", "/opt", "/cores",
         ]
         for root in systemRoots {
@@ -118,12 +121,12 @@ public enum ScanLocationPolicy {
         }
 
         // Reject /Users and /Applications themselves; subfolders are fine.
-        if path == "/Users" || path == "/Applications" {
+        if path == "/users" || path == "/applications" {
             return "Choose a specific folder inside \(canonical.lastPathComponent), not the folder itself."
         }
 
         let home = fm.homeDirectoryForCurrentUser.canonicalized
-        let homePath = home.path
+        let homePath = home.path.lowercased()
 
         // Reject the home directory itself (the default scan already covers its
         // content subfolders — pointing at the whole home would be too broad).
@@ -132,13 +135,13 @@ public enum ScanLocationPolicy {
         }
 
         // Reject ~/Library and anything inside it.
-        let libraryPath = home.appendingPathComponent("Library").canonicalized.path
+        let libraryPath = home.appendingPathComponent("Library").canonicalized.path.lowercased()
         if path == libraryPath || path.hasPrefix(libraryPath + "/") {
             return "Library folders are excluded from scanning for safety."
         }
 
         // Reject ~/.Trash and anything inside it.
-        let trashPath = home.appendingPathComponent(".Trash").canonicalized.path
+        let trashPath = home.appendingPathComponent(".Trash").canonicalized.path.lowercased()
         if path == trashPath || path.hasPrefix(trashPath + "/") {
             return "The Trash cannot be added as a scan location."
         }

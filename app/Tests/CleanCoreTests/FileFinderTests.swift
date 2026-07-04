@@ -201,6 +201,15 @@ final class FileFinderTests: XCTestCase {
         }
     }
 
+    /// APFS is case-insensitive by default, so "/SYSTEM" is the same directory
+    /// as "/System" — the policy must not be dodged by case games.
+    func test_scanLocationPolicyIsCaseInsensitive() throws {
+        for spelling in ["/SYSTEM", "/system", "/System"] {
+            XCTAssertNotNil(ScanLocationPolicy.validate(URL(fileURLWithPath: spelling)),
+                            "\(spelling) must be refused regardless of case")
+        }
+    }
+
     func test_scanLocationPolicyRejectsPlainFiles() throws {
         let file = try makeFile(downloads.appendingPathComponent("file.bin"), mb: 1)
         XCTAssertNotNil(ScanLocationPolicy.validate(file), "files are not scan locations")
