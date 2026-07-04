@@ -11,12 +11,16 @@ struct UninstallerView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            header
+            TopBar(title: "Uninstaller") {
+                searchField
+                statusPill
+            }
 
             switch model.phase {
             case .idle, .scanning:
                 loadingList
             case .ready:
+                subtitleLine
                 appList
             }
         }
@@ -24,77 +28,72 @@ struct UninstallerView: View {
         .task { if model.phase == .idle { await model.scan() } }
     }
 
-    // MARK: - Header
+    // MARK: - Top bar pieces
 
-    private var header: some View {
-        VStack(spacing: 14) {
-            VStack(spacing: 6) {
-                Text("Uninstaller")
-                    .font(.system(size: 30, weight: .bold))
-                    .foregroundStyle(Palette.ink)
-                Text("Remove an app together with the caches, preferences and support files it leaves behind.")
-                    .font(.system(size: 13))
-                    .foregroundStyle(Palette.muted)
-                    .multilineTextAlignment(.center)
-            }
-
-            searchField
-
-            if model.phase == .ready {
-                Text("\(model.visibleApps.count) apps · \(ByteFormat.human(model.totalBundleBytes))")
-                    .font(.caption)
-                    .foregroundStyle(Palette.muted)
-            }
+    @ViewBuilder private var statusPill: some View {
+        if model.phase == .ready {
+            StatusPill(text: "\(model.visibleApps.count) apps", tone: .blue)
+        } else {
+            StatusPill(text: "Scanning…", tone: .blue)
         }
-        .frame(maxWidth: .infinity)
-        .padding(.top, 48)
-        .padding(.horizontal, 22)
-        .padding(.bottom, 16)
+    }
+
+    private var subtitleLine: some View {
+        Text("Remove an app together with the caches, preferences and support files it leaves behind.")
+            .font(.system(size: 12.5))
+            .foregroundStyle(Palette.sub)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 26)
+            .padding(.bottom, 12)
     }
 
     private var searchField: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 7) {
             Image(systemName: "magnifyingglass")
-                .font(.system(size: 13))
-                .foregroundStyle(Palette.muted)
+                .font(.system(size: 11.5))
+                .foregroundStyle(Palette.sub)
             TextField("Search apps", text: $model.query)
                 .textFieldStyle(.plain)
-                .font(.system(size: 14))
+                .font(.system(size: 12.5))
                 .foregroundStyle(.white)
             if !model.query.isEmpty {
                 Button { model.query = "" } label: {
-                    Image(systemName: "xmark.circle.fill").foregroundStyle(Palette.muted)
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 11.5))
+                        .foregroundStyle(Palette.sub)
                 }
                 .buttonStyle(.plain)
             }
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 9)
-        .background(Capsule().fill(.white.opacity(0.08)))
-        .overlay(Capsule().strokeBorder(Palette.glassBorder, lineWidth: 1))
-        .frame(maxWidth: 400)
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(RoundedRectangle(cornerRadius: 9, style: .continuous)
+            .fill(.white.opacity(0.07)))
+        .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous)
+            .strokeBorder(Palette.glassBorder, lineWidth: 1))
+        .frame(width: 220)
     }
 
     // MARK: - Lists
 
     private var loadingList: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: 8) {
             ForEach(0..<5, id: \.self) { _ in
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
                     .fill(.white.opacity(0.05))
-                    .frame(height: 66)
+                    .frame(height: 62)
                     .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .strokeBorder(Palette.hair, lineWidth: 1))
+                        .strokeBorder(Palette.glassBorder, lineWidth: 1))
             }
             Spacer()
         }
-        .padding(.horizontal, 22)
+        .padding(.horizontal, 26)
         .padding(.top, 4)
     }
 
     private var appList: some View {
         ScrollView {
-            LazyVStack(spacing: 10) {
+            LazyVStack(spacing: 8) {
                 ForEach(model.visibleApps) { app in
                     AppUninstallRow(app: app, model: model)
                 }
@@ -102,7 +101,7 @@ struct UninstallerView: View {
                     emptyState
                 }
             }
-            .padding(.horizontal, 22)
+            .padding(.horizontal, 26)
             .padding(.bottom, 24)
         }
     }
@@ -110,9 +109,10 @@ struct UninstallerView: View {
     private var emptyState: some View {
         VStack(spacing: 10) {
             Image(systemName: "magnifyingglass")
-                .font(.system(size: 34)).foregroundStyle(Palette.muted.opacity(0.5))
+                .font(.system(size: 34)).foregroundStyle(Palette.tiny)
             Text(model.query.isEmpty ? "No apps found." : "No apps match “\(model.query)”.")
-                .foregroundStyle(Palette.muted)
+                .font(.system(size: 12.5))
+                .foregroundStyle(Palette.sub)
         }
         .padding(.vertical, 60)
     }
@@ -141,19 +141,19 @@ private struct AppUninstallRow: View {
     private var header: some View {
         Button { withAnimation(.snappy) { model.toggleExpanded(app) } } label: {
             HStack(spacing: 12) {
-                AppIcon(url: app.url).frame(width: 40, height: 40)
+                AppIcon(url: app.url).frame(width: 32, height: 32)
 
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 7) {
                         Text(app.name)
-                            .font(.body.weight(.semibold))
-                            .foregroundStyle(Palette.ink)
+                            .font(.system(size: 13.5, weight: .semibold))
+                            .foregroundStyle(.white)
                             .lineLimit(1)
                         statusBadge
                     }
                     Text(subtitle)
-                        .font(.caption)
-                        .foregroundStyle(Palette.muted)
+                        .font(.system(size: 11))
+                        .foregroundStyle(Palette.tiny)
                         .lineLimit(1)
                         .truncationMode(.middle)
                 }
@@ -161,12 +161,12 @@ private struct AppUninstallRow: View {
                 Spacer(minLength: 8)
 
                 Text(ByteFormat.human(app.sizeBytes))
-                    .font(.callout).monospacedDigit()
-                    .foregroundStyle(Palette.ink2)
+                    .font(.system(size: 13)).monospacedDigit()
+                    .foregroundStyle(Palette.sub)
 
                 Image(systemName: "chevron.right")
                     .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(Palette.muted)
+                    .foregroundStyle(Palette.sub)
                     .rotationEffect(.degrees(expanded ? 90 : 0))
             }
             .padding(14)
@@ -182,11 +182,11 @@ private struct AppUninstallRow: View {
 
     @ViewBuilder private var statusBadge: some View {
         if app.isSystem {
-            TagBadge(text: "System", color: Palette.muted)
+            TagBadge(text: "System", color: Color.white.opacity(0.55))
         } else if model.isSelf(app) {
-            TagBadge(text: "This app", color: Palette.muted)
+            TagBadge(text: "This app", color: Color.white.opacity(0.55))
         } else if model.isRunning(app) {
-            TagBadge(text: "Running", color: Palette.warn)
+            TagBadge(text: "Running", color: PillTone.warn.text)
         }
     }
 
@@ -202,7 +202,9 @@ private struct AppUninstallRow: View {
             if model.isPlanning(app) {
                 HStack(spacing: 8) {
                     ProgressView().controlSize(.small)
-                    Text("Finding leftover files…").foregroundStyle(Palette.muted)
+                    Text("Finding leftover files…")
+                        .font(.system(size: 12.5))
+                        .foregroundStyle(Palette.sub)
                 }
                 .padding(16)
             } else if let plan = model.plan(for: app) {
@@ -215,12 +217,15 @@ private struct AppUninstallRow: View {
     private func problemNotice(_ report: CleanReport) -> some View {
         let count = report.failed.count + report.blocked.count
         return HStack(alignment: .top, spacing: 10) {
-            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Palette.warn)
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(PillTone.warn.text)
             VStack(alignment: .leading, spacing: 2) {
                 Text("\(count) item\(count == 1 ? "" : "s") couldn’t be moved to the Trash.")
-                    .font(.callout).foregroundStyle(Palette.ink)
+                    .font(.system(size: 13))
+                    .foregroundStyle(Palette.ink)
                 Text("They may be in use (quit “\(app.name)” first) or protected by the safety check. Nothing else was affected.")
-                    .font(.caption).foregroundStyle(Palette.muted)
+                    .font(.system(size: 11))
+                    .foregroundStyle(Palette.sub)
             }
             Spacer()
         }
@@ -230,11 +235,12 @@ private struct AppUninstallRow: View {
 
     private var protectedNotice: some View {
         HStack(spacing: 10) {
-            Image(systemName: "lock.shield.fill").foregroundStyle(.white.opacity(0.85))
+            Image(systemName: "lock.shield.fill")
+                .foregroundStyle(.white.opacity(0.85))
             Text(app.isSystem
                  ? "This is a system app and is protected — it can’t be uninstalled here."
                  : "CleanYourMac can’t uninstall itself.")
-                .font(.callout)
+                .font(.system(size: 13))
                 .foregroundStyle(Palette.ink2)
             Spacer()
         }
@@ -245,14 +251,20 @@ private struct AppUninstallRow: View {
         LazyVStack(spacing: 0) {
             if model.isRunning(app) {
                 HStack(spacing: 8) {
-                    Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Palette.warn)
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(PillTone.warn.text)
                     Text("“\(app.name)” is running. Quit it first so its settings aren’t rewritten.")
-                        .font(.caption).foregroundStyle(Palette.ink2)
+                        .font(.system(size: 11))
+                        .foregroundStyle(Palette.ink2)
                     Spacer()
                 }
                 .padding(.horizontal, 14).padding(.vertical, 9)
             }
-            ForEach(plan.leftovers) { leftover in
+            ForEach(Array(plan.leftovers.enumerated()), id: \.element.id) { index, leftover in
+                if index > 0 {
+                    Rectangle().fill(Palette.hair).frame(height: 1)
+                        .padding(.leading, 14)
+                }
                 LeftoverRow(
                     leftover: leftover,
                     selected: model.isSelected(app, leftover.id)
@@ -264,33 +276,28 @@ private struct AppUninstallRow: View {
 
     private func footer(_ plan: UninstallPlan) -> some View {
         HStack(spacing: 12) {
-            VStack(alignment: .leading, spacing: 1) {
+            VStack(alignment: .leading, spacing: 2) {
                 Text("\(model.selectedCount(for: app)) of \(plan.leftovers.count) items selected")
-                    .font(.subheadline).foregroundStyle(Palette.ink)
+                    .font(.system(size: 12.5))
+                    .foregroundStyle(Palette.sub)
                 Text("Everything goes to the Trash — fully recoverable.")
-                    .font(.caption).foregroundStyle(Palette.muted)
+                    .font(.system(size: 11))
+                    .foregroundStyle(Palette.tiny)
             }
             Spacer()
-            uninstallButton(plan)
+            uninstallButton
         }
         .padding(14)
         .overlay(alignment: .top) { Rectangle().fill(Palette.hair).frame(height: 1) }
     }
 
-    private func uninstallButton(_ plan: UninstallPlan) -> some View {
-        let disabled = model.selectedCount(for: app) == 0
-        return Button { showConfirm = true } label: {
-            Label("Move \(ByteFormat.human(model.selectedBytes(for: app))) to Trash", systemImage: "trash")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(.white)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 9)
-                .background(Capsule().fill(ModuleTheme.indigo.accentGradient))
-                .shadow(color: ModuleTheme.indigo.accent.opacity(disabled ? 0 : 0.5), radius: 12, y: 2)
+    private var uninstallButton: some View {
+        GradientButton(
+            title: "Uninstall · \(ByteFormat.human(model.selectedBytes(for: app)))",
+            disabled: model.selectedCount(for: app) == 0
+        ) {
+            showConfirm = true
         }
-        .buttonStyle(.plain)
-        .opacity(disabled ? 0.45 : 1)
-        .disabled(disabled)
         .confirmationDialog(
             "Move \(app.name) and \(model.selectedCount(for: app)) items (\(ByteFormat.human(model.selectedBytes(for: app)))) to the Trash?",
             isPresented: $showConfirm,
@@ -313,25 +320,20 @@ private struct LeftoverRow: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            Button(action: onToggle) {
-                Image(systemName: selected ? "checkmark.circle.fill" : "circle")
-                    .font(.system(size: 18))
-                    .foregroundStyle(selected ? .white : .white.opacity(0.28))
-            }
-            .buttonStyle(.plain)
+            GlassCheckbox(on: selected, action: onToggle)
 
             VStack(alignment: .leading, spacing: 1) {
                 HStack(spacing: 7) {
                     Text(leftover.kind.titleEN)
-                        .font(.callout)
-                        .foregroundStyle(Palette.ink2)
+                        .font(.system(size: 12.5))
+                        .foregroundStyle(.white.opacity(0.85))
                     if leftover.confidence == .medium {
-                        TagBadge(text: "review", color: Palette.warn)
+                        TagBadge(text: "review", color: PillTone.warn.text)
                     }
                 }
                 Text(leftover.url.path)
-                    .font(.caption2)
-                    .foregroundStyle(Palette.muted.opacity(0.7))
+                    .font(.system(size: 11))
+                    .foregroundStyle(Palette.tiny)
                     .lineLimit(1)
                     .truncationMode(.middle)
             }
@@ -339,20 +341,20 @@ private struct LeftoverRow: View {
             Spacer()
 
             Text(ByteFormat.human(leftover.sizeBytes))
-                .font(.caption).monospacedDigit()
-                .foregroundStyle(Palette.muted)
+                .font(.system(size: 13)).monospacedDigit()
+                .foregroundStyle(Palette.sub)
 
             Button {
                 NSWorkspace.shared.activateFileViewerSelecting([leftover.url])
             } label: {
                 Image(systemName: "magnifyingglass")
                     .font(.system(size: 12))
-                    .foregroundStyle(Palette.muted.opacity(0.8))
+                    .foregroundStyle(Palette.sub)
             }
             .buttonStyle(.plain)
             .help("Reveal in Finder")
         }
-        .padding(.vertical, 5)
+        .padding(.vertical, 7)
         .padding(.horizontal, 14)
     }
 }

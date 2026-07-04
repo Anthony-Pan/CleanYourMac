@@ -10,176 +10,139 @@ extension Color {
     }
 }
 
-// MARK: - Module themes
+// MARK: - Aurora stage
 
-/// One module's signature colors, CleanMyMac-5 style: a full-bleed gradient
-/// stage (deep edges, bright glow center) plus an accent for its primary
-/// circular action button.
-struct ModuleTheme: Equatable {
-    let deep: Color      // darkest, outer edges of the stage
-    let mid: Color       // upper-body tint of the stage
-    let glow: Color      // bright radial center
-    let accent: Color    // action-button fill
-    let accentHi: Color  // lighter accent, gradient top
-
-    var accentGradient: LinearGradient {
-        LinearGradient(colors: [accentHi, accent], startPoint: .top, endPoint: .bottom)
-    }
-
-    /// Smart Scan — magenta on deep purple.
-    static let magenta = ModuleTheme(
-        deep: Color(hex: 0x24072F), mid: Color(hex: 0x7A1B8F),
-        glow: Color(hex: 0xDE47BE), accent: Color(hex: 0xC91FB5), accentHi: Color(hex: 0xEF5AD6))
-
-    /// Uninstaller — indigo on deep navy.
-    static let indigo = ModuleTheme(
-        deep: Color(hex: 0x0D0A33), mid: Color(hex: 0x322788),
-        glow: Color(hex: 0x7263F2), accent: Color(hex: 0x5D49F0), accentHi: Color(hex: 0x8672FF))
-
-    /// Large & Old Files — teal on deep pine.
-    static let teal = ModuleTheme(
-        deep: Color(hex: 0x032220), mid: Color(hex: 0x0C574D),
-        glow: Color(hex: 0x2FB9A4), accent: Color(hex: 0x0FA893), accentHi: Color(hex: 0x36CDB4))
-
-    /// Privacy — azure on deep navy.
-    static let blue = ModuleTheme(
-        deep: Color(hex: 0x051430), mid: Color(hex: 0x0F3A78),
-        glow: Color(hex: 0x3E8BE8), accent: Color(hex: 0x2374E1), accentHi: Color(hex: 0x59A5FF))
-}
-
-// MARK: - Shared text & chrome colors
-
-enum Palette {
-    static let ink = Color.white
-    static let ink2 = Color.white.opacity(0.82)
-    static let muted = Color.white.opacity(0.58)
-    static let faint = Color.white.opacity(0.36)
-    static let hair = Color.white.opacity(0.10)
-    static let warn = Color(hex: 0xFFD48A)
-
-    static let glassBorder = Color.white.opacity(0.16)
-    static let glassBorderFocus = Color.white.opacity(0.34)
-    static let glassGradient = LinearGradient(stops: [
-        .init(color: .white.opacity(0.13), location: 0.0),
-        .init(color: .white.opacity(0.06), location: 0.55),
-        .init(color: .white.opacity(0.03), location: 1.0),
-    ], startPoint: .topLeading, endPoint: .bottomTrailing)
-}
-
-// MARK: - Module stage background
-
-/// The full-bleed gradient stage behind a module: deep edges, a bright glow
-/// slightly above center, a soft vignette, and drifting particles. Drawn once
-/// by `RootView`; individual screens never draw their own background.
-struct ModuleBackground: View {
-    let theme: ModuleTheme
-    /// Brighter, breathing glow while the module is scanning or cleaning.
-    var active: Bool = false
-
-    @State private var pulse = false
+/// The one full-window backdrop: a deep violet base with three soft radial
+/// color pools. Privacy uses a warmer variant. Drawn once by `RootView`;
+/// screens never draw their own background.
+struct AuroraBackground: View {
+    enum Variant { case standard, privacy }
+    var variant: Variant = .standard
 
     var body: some View {
-        ZStack {
-            theme.deep
+        GeometryReader { geo in
+            let w = geo.size.width, h = geo.size.height
+            ZStack {
+                base
 
-            LinearGradient(stops: [
-                .init(color: theme.mid.opacity(0.90), location: 0.0),
-                .init(color: theme.mid.opacity(0.35), location: 0.55),
-                .init(color: .clear, location: 1.0),
-            ], startPoint: .top, endPoint: .bottom)
-
-            RadialGradient(
-                colors: [theme.glow.opacity(active ? 0.80 : 0.58), theme.glow.opacity(0)],
-                center: UnitPoint(x: 0.5, y: 0.38),
-                startRadius: 30,
-                endRadius: 660
-            )
-            .scaleEffect(pulse ? 1.05 : 0.96)
-            .animation(.easeInOut(duration: 2.6).repeatForever(autoreverses: true), value: pulse)
-
-            ParticleField(animating: active)
-
-            RadialGradient(colors: [.clear, .black.opacity(0.42)],
-                           center: UnitPoint(x: 0.5, y: 0.45),
-                           startRadius: 320, endRadius: 940)
+                pool(top, radius: 0.85 * w)
+                    .position(x: w * (variant == .privacy ? 0.70 : 0.75), y: h * -0.10)
+                pool(corner, radius: 0.78 * w)
+                    .position(x: w * (variant == .privacy ? 0.95 : 0.90), y: h * 1.05)
+                pool(side, radius: 0.68 * w)
+                    .position(x: w * -0.10, y: h * 0.90)
+            }
         }
         .ignoresSafeArea()
-        .onAppear { pulse = true }
+    }
+
+    private var base: LinearGradient {
+        let stops: [Color] = variant == .privacy
+            ? [Color(hex: 0x321A44), Color(hex: 0x44204E), Color(hex: 0x241436)]
+            : [Color(hex: 0x221A3E), Color(hex: 0x2C1C4E), Color(hex: 0x1B1436)]
+        return LinearGradient(colors: stops,
+                              startPoint: UnitPoint(x: 0.15, y: 0),
+                              endPoint: UnitPoint(x: 0.85, y: 1))
+    }
+
+    private var top: Color {
+        variant == .privacy ? Color(hex: 0x6A2A66) : Color(hex: 0x4A2A7A)
+    }
+    private var corner: Color {
+        variant == .privacy ? Color(hex: 0x8A2A4E) : Color(hex: 0x7A2A6A)
+    }
+    private var side: Color {
+        variant == .privacy ? Color(hex: 0x3A2A66) : Color(hex: 0x232A66)
+    }
+
+    private func pool(_ color: Color, radius: CGFloat) -> some View {
+        RadialGradient(colors: [color, color.opacity(0)],
+                       center: .center, startRadius: 0, endRadius: radius)
+            .frame(width: radius * 2, height: radius * 2)
+    }
+}
+
+// MARK: - Palette
+
+enum Palette {
+    // Text tiers (mockup: .name .sub .tiny .slab)
+    static let ink = Color.white
+    static let ink2 = Color.white.opacity(0.82)
+    static let sub = Color.white.opacity(0.55)
+    static let tiny = Color.white.opacity(0.45)
+    static let slab = Color.white.opacity(0.40)
+    static let hair = Color.white.opacity(0.10)
+
+    // Glass surfaces
+    static let glassFill = Color.white.opacity(0.07)
+    static let glassBorder = Color.white.opacity(0.10)
+    static let glassFocusBorder = Color(hex: 0x9682FF, alpha: 0.55)
+    static let glassFocusGlow = Color(hex: 0x785AFF, alpha: 0.25)
+
+    // Primary action gradient (buttons)
+    static let action = LinearGradient(colors: [Color(hex: 0x5A8DFF), Color(hex: 0x9A5BFF)],
+                                       startPoint: .leading, endPoint: .trailing)
+    static let actionDiagonal = LinearGradient(colors: [Color(hex: 0x5A8DFF), Color(hex: 0x8F5BFF)],
+                                               startPoint: .topLeading, endPoint: .bottomTrailing)
+    static let actionGlow = Color(hex: 0x785AFF)
+
+    // Checkbox-on gradient
+    static let check = LinearGradient(colors: [Color(hex: 0x8F5BFF), Color(hex: 0xC04AE0)],
+                                      startPoint: .topLeading, endPoint: .bottomTrailing)
+    static let checkGlow = Color(hex: 0x8F5BFF, alpha: 0.5)
+
+    // Bottom bar fill
+    static let barFill = Color(hex: 0x140E28, alpha: 0.5)
+}
+
+// MARK: - Status pill tones
+
+enum PillTone {
+    case good, warn, blue, red
+
+    var text: Color {
+        switch self {
+        case .good: return Color(hex: 0x7BE8A8)
+        case .warn: return Color(hex: 0xFFC37B)
+        case .blue: return Color(hex: 0xAEB8FF)
+        case .red:  return Color(hex: 0xFF9DAE)
+        }
+    }
+
+    var fill: Color {
+        switch self {
+        case .good: return Color(hex: 0x5FE096, alpha: 0.15)
+        case .warn: return Color(hex: 0xFFAA5A, alpha: 0.15)
+        case .blue: return Color(hex: 0x7A8CFF, alpha: 0.18)
+        case .red:  return Color(hex: 0xFF6E82, alpha: 0.16)
+        }
     }
 }
 
 // MARK: - Frosted glass surface
 
+/// Translucent white glass per the mockup (`.glass`): white 0.07 fill, white
+/// 0.10 hairline. Deliberately NOT a system material — materials sample the
+/// backdrop, which renders black in offscreen snapshots and hides the aurora.
 struct GlassCard: ViewModifier {
-    var radius: CGFloat = 16
+    var radius: CGFloat = 14
     var focused: Bool = false
 
     func body(content: Content) -> some View {
         content
-            .background(
-                ZStack {
-                    RoundedRectangle(cornerRadius: radius, style: .continuous).fill(.ultraThinMaterial)
-                    RoundedRectangle(cornerRadius: radius, style: .continuous).fill(Palette.glassGradient)
-                }
-            )
+            .background(RoundedRectangle(cornerRadius: radius, style: .continuous)
+                .fill(Palette.glassFill))
             .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: radius, style: .continuous)
-                    .strokeBorder(focused ? Palette.glassBorderFocus : Palette.glassBorder, lineWidth: 1)
+                    .strokeBorder(focused ? Palette.glassFocusBorder : Palette.glassBorder, lineWidth: 1)
             )
-            .shadow(color: .black.opacity(0.22), radius: 20, y: 12)
+            .shadow(color: focused ? Palette.glassFocusGlow : .clear, radius: 12)
     }
 }
 
 extension View {
-    func glassCard(radius: CGFloat = 16, focused: Bool = false) -> some View {
+    func glassCard(radius: CGFloat = 14, focused: Bool = false) -> some View {
         modifier(GlassCard(radius: radius, focused: focused))
-    }
-}
-
-// MARK: - Lightweight particle field
-
-private struct StageParticle {
-    let x: Double, phase: Double, speed: Double
-    let sway: Double, size: Double, baseOpacity: Double, twinkle: Double
-}
-
-struct ParticleField: View {
-    var animating: Bool
-    private let particles: [StageParticle]
-
-    init(animating: Bool, count: Int = 34) {
-        self.animating = animating
-        var rng = SystemRandomNumberGenerator()
-        particles = (0..<count).map { _ in
-            StageParticle(
-                x: .random(in: 0...1, using: &rng),
-                phase: .random(in: 0...1, using: &rng),
-                speed: .random(in: 0.008...0.032, using: &rng),
-                sway: .random(in: 0.2...1.1, using: &rng),
-                size: .random(in: 0.9...2.2, using: &rng),
-                baseOpacity: .random(in: 0.03...0.13, using: &rng),
-                twinkle: .random(in: 0.3...1.4, using: &rng)
-            )
-        }
-    }
-
-    var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !animating)) { timeline in
-            Canvas { context, size in
-                let t = timeline.date.timeIntervalSinceReferenceDate
-                for p in particles {
-                    let frac = (p.phase + t * p.speed).truncatingRemainder(dividingBy: 1)
-                    let y = size.height * (1 - frac)
-                    let x = p.x * size.width + sin(t * p.sway + p.phase * 6.28) * 10
-                    let twinkle = 0.5 + 0.5 * sin(t * p.twinkle + p.phase * 6.28)
-                    let opacity = p.baseOpacity * (animating ? 1.0 : 0.55) * twinkle
-                    let r = p.size
-                    let rect = CGRect(x: x - r, y: y - r, width: r * 2, height: r * 2)
-                    context.fill(Path(ellipseIn: rect), with: .color(.white.opacity(opacity)))
-                }
-            }
-        }
-        .allowsHitTesting(false)
     }
 }

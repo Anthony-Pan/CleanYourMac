@@ -12,7 +12,7 @@ public enum SnapshotScreen: String, CaseIterable {
     @MainActor
     public var view: some View {
         ZStack {
-            ModuleBackground(theme: section.theme, active: false)
+            AuroraBackground(variant: section == .privacy ? .privacy : .standard)
             HStack(spacing: 0) {
                 Sidebar(selection: .constant(section))
                 // Mirror RootView: the module view fills the space right of the rail.
@@ -54,19 +54,21 @@ public enum SnapshotScreen: String, CaseIterable {
     // MARK: - Mock data (plausible, deterministic, never touches the disk)
 
     private static func mockGroups() -> [ScanResultGroup] {
-        func group(_ id: String, _ name: String, _ files: [(String, Int64)]) -> ScanResultGroup {
-            let items = files.map { (name, size) in
-                ScanItem(url: URL(fileURLWithPath: "/Users/you/Library/Caches/\(name)"),
+        // Item IDs are paths, so every mock file needs a unique name — repeated
+        // names collapse to one row in ForEach.
+        func group(_ id: String, _ name: String, _ stem: String, _ size: Int64, _ count: Int) -> ScanResultGroup {
+            let items = (0..<count).map { i in
+                ScanItem(url: URL(fileURLWithPath: "/Users/you/Library/Caches/\(stem)-\(i)"),
                          categoryID: id, sizeBytes: size, modificationDate: nil)
             }
             let cat = CleanupCategory(id: id, nameEN: name, nameCN: name, targets: [])
             return ScanResultGroup(category: cat, items: items)
         }
         return [
-            group("user-caches", "User Caches", Array(repeating: ("cache", 811_000_000), count: 129)),
-            group("dev-tool-caches", "Developer Tool Caches", Array(repeating: ("cache", 2_150_000_000), count: 11)),
-            group("xcode-derived-data", "Xcode Derived Data", Array(repeating: ("build", 660_000_000), count: 5)),
-            group("app-logs", "Application Logs", Array(repeating: ("log", 2_000_000), count: 48)),
+            group("user-caches", "User Caches", "com.example.cache", 811_000_000, 129),
+            group("dev-tool-caches", "Developer Tool Caches", "registry-shard", 2_150_000_000, 11),
+            group("xcode-derived-data", "Xcode Derived Data", "MyApp-build", 660_000_000, 5),
+            group("app-logs", "Application Logs", "diagnostics", 2_000_000, 48),
         ]
     }
 

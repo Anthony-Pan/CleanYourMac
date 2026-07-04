@@ -11,8 +11,6 @@ struct PrivacyView: View {
     @State private var showConfirm = false
     @State private var fdaBannerDismissed = false
 
-    private static let theme: ModuleTheme = .blue
-
     init(model: PrivacyViewModel) { self.model = model }
 
     var body: some View {
@@ -40,28 +38,32 @@ struct PrivacyView: View {
 
     private var idleView: some View {
         VStack(spacing: 0) {
+            TopBar(title: "Privacy") {
+                StatusPill(text: "Ready", tone: .blue)
+            }
+
             Spacer()
 
-            HeroBlob(theme: Self.theme, symbol: "hand.raised.fill")
+            Orb(size: 230)
 
-            Text("Privacy")
-                .font(.system(size: 34, weight: .bold))
-                .foregroundStyle(Palette.ink)
-                .padding(.top, 26)
+            Text("Remove traces and manage your privacy")
+                .font(.system(size: 26, weight: .bold))
+                .foregroundStyle(.white)
+                .padding(.top, 4)
 
             Text("Clear caches, history, cookies and recent-item lists left behind by your browsers and macOS.")
-                .font(.system(size: 13))
-                .foregroundStyle(Palette.muted)
+                .font(.system(size: 12.5))
+                .foregroundStyle(Palette.sub)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 380)
                 .padding(.top, 8)
 
-            Spacer()
-
-            CircleActionButton(title: "Scan", theme: Self.theme) {
+            CTACircle(title: "Scan") {
                 Task { await model.scan() }
             }
-            .padding(.bottom, 36)
+            .padding(.top, 30)
+
+            Spacer()
         }
         .frame(maxWidth: .infinity)
     }
@@ -70,22 +72,20 @@ struct PrivacyView: View {
 
     private var busyView: some View {
         VStack(spacing: 0) {
+            TopBar(title: "Privacy") {
+                StatusPill(text: model.phase == .cleaning ? "Clearing…" : "Scanning…", tone: .blue)
+            }
+
             Spacer()
 
-            HeroBlob(theme: Self.theme, symbol: "hand.raised.fill", animating: true)
+            Orb(size: 230, animating: true)
 
             Text(model.phase == .cleaning ? "Clearing traces…" : "Scanning…")
-                .font(.system(size: 26, weight: .semibold))
-                .foregroundStyle(Palette.ink)
-                .padding(.top, 26)
+                .font(.system(size: 26, weight: .bold))
+                .foregroundStyle(.white)
+                .padding(.top, 4)
 
             Spacer()
-
-            CircleActionButton(title: model.phase == .scanning ? "Scanning" : "Clearing",
-                               theme: Self.theme,
-                               ring: .progress,
-                               disabled: true) {}
-                .padding(.bottom, 36)
         }
         .frame(maxWidth: .infinity)
     }
@@ -94,6 +94,10 @@ struct PrivacyView: View {
 
     private var doneView: some View {
         VStack(spacing: 0) {
+            TopBar(title: "Privacy") {
+                StatusPill(text: "Traces cleared", tone: .good)
+            }
+
             Spacer()
 
             Image(systemName: "checkmark.shield.fill")
@@ -102,29 +106,29 @@ struct PrivacyView: View {
                 .shadow(color: .white.opacity(0.45), radius: 22)
 
             Text("Traces cleared")
-                .font(.system(size: 30, weight: .bold))
-                .foregroundStyle(Palette.ink)
+                .font(.system(size: 26, weight: .bold))
+                .foregroundStyle(.white)
                 .padding(.top, 20)
 
             Text("Freed \(ByteFormat.human(model.lastReport?.freedBytes ?? 0)) · moved \(model.lastReport?.trashed.count ?? 0) items to Trash")
-                .font(.system(size: 13))
-                .foregroundStyle(Palette.muted)
+                .font(.system(size: 12.5))
+                .foregroundStyle(Palette.sub)
                 .padding(.top, 8)
 
             if let report = model.lastReport, !report.failed.isEmpty || !report.blocked.isEmpty {
                 Text("\(report.failed.count + report.blocked.count) item(s) couldn't be cleared — quit the browser and try again.")
-                    .font(.caption)
-                    .foregroundStyle(Palette.warn)
+                    .font(.system(size: 11))
+                    .foregroundStyle(PillTone.warn.text)
                     .multilineTextAlignment(.center)
                     .padding(.top, 8)
             }
 
-            Spacer()
-
-            CircleActionButton(title: "Scan Again", theme: Self.theme) {
+            CTACircle(title: "Scan Again") {
                 Task { await model.scan() }
             }
-            .padding(.bottom, 36)
+            .padding(.top, 30)
+
+            Spacer()
         }
         .frame(maxWidth: .infinity)
     }
@@ -133,7 +137,17 @@ struct PrivacyView: View {
 
     private var resultsView: some View {
         VStack(spacing: 0) {
-            header
+            TopBar(title: "Privacy") {
+                StatusPill(text: "\(model.selectedRowCount) traces · \(ByteFormat.human(model.selectedBytes))",
+                           tone: .red)
+            }
+
+            Text("Clear caches, history, cookies and recent-item lists left by your browsers and macOS. Sign-out and site-data traces are off by default.")
+                .font(.system(size: 12.5))
+                .foregroundStyle(Palette.sub)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 26)
+                .padding(.bottom, 10)
 
             if model.fdaMissing && !fdaBannerDismissed {
                 fdaBanner
@@ -148,55 +162,35 @@ struct PrivacyView: View {
         }
     }
 
-    private var header: some View {
-        VStack(spacing: 6) {
-            Text("PRIVACY")
-                .font(.system(size: 11, weight: .semibold)).tracking(1.6)
-                .foregroundStyle(Palette.muted)
-            Text("\(ByteFormat.human(model.totalBytes)) of browser traces")
-                .font(.system(size: 32, weight: .bold, design: .rounded))
-                .foregroundStyle(Palette.ink)
-            Text("Clear caches, history, cookies and recent-item lists left by your browsers and macOS. Sign-out and site-data traces are off by default.")
-                .font(.system(size: 13))
-                .foregroundStyle(Palette.muted)
-                .multilineTextAlignment(.center)
-        }
-        .padding(.top, 40)
-        .padding(.horizontal, 24)
-        .padding(.bottom, 16)
-    }
-
     private var fdaBanner: some View {
         HStack(spacing: 10) {
             Image(systemName: "lock.shield.fill")
-                .foregroundStyle(Palette.warn)
+                .foregroundStyle(PillTone.warn.text)
             VStack(alignment: .leading, spacing: 2) {
                 Text("Safari data needs Full Disk Access")
-                    .font(.callout.weight(.semibold))
-                    .foregroundStyle(Palette.ink)
+                    .font(.system(size: 13.5, weight: .semibold))
+                    .foregroundStyle(.white)
                 Text("Grant it in System Settings › Privacy & Security, then scan again.")
-                    .font(.caption)
-                    .foregroundStyle(Palette.muted)
+                    .font(.system(size: 11))
+                    .foregroundStyle(Palette.tiny)
             }
             Spacer()
-            Button("Open Settings") {
+            CompactCapsuleButton(title: "Open Settings") {
                 // swiftlint:disable:next force_unwrapping
                 NSWorkspace.shared.open(URL(string:
                     "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles")!)
             }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
             Button(action: { fdaBannerDismissed = true }) {
                 Image(systemName: "xmark")
                     .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(Palette.muted)
+                    .foregroundStyle(Palette.sub)
             }
             .buttonStyle(.plain)
         }
         .padding(.horizontal, 14).padding(.vertical, 10)
         .glassCard(radius: 12)
-        .padding(.horizontal, 22)
-        .padding(.bottom, 8)
+        .padding(.horizontal, 26)
+        .padding(.bottom, 10)
     }
 
     private var groupList: some View {
@@ -206,24 +200,23 @@ struct PrivacyView: View {
                     PrivacyGroupCard(group: group, model: model)
                 }
             }
-            .padding(.horizontal, 22)
-            .padding(.bottom, 20)
+            .padding(.horizontal, 26)
+            .padding(.bottom, 24)
         }
     }
 
     private var bottomAction: some View {
-        VStack(spacing: 10) {
+        BottomBar {
             Text("\(model.selectedRowCount) traces · \(ByteFormat.human(model.selectedBytes)) selected")
-                .font(.system(size: 12))
-                .foregroundStyle(.white.opacity(0.8))
+                .font(.system(size: 12.5))
+                .foregroundStyle(Palette.sub)
 
-            CircleActionButton(title: "Clean",
-                               theme: Self.theme,
-                               disabled: model.selectedCount == 0) {
+            Spacer()
+
+            GradientButton(title: "Remove Selected", disabled: model.selectedCount == 0) {
                 showConfirm = true
             }
         }
-        .padding(.bottom, 24)
         .confirmationDialog(
             "Clear \(model.selectedRowCount) traces (\(ByteFormat.human(model.selectedBytes)))?",
             isPresented: $showConfirm, titleVisibility: .visible
@@ -250,11 +243,12 @@ struct PrivacyView: View {
         VStack(spacing: 12) {
             Spacer()
             Image(systemName: "hand.raised.fill")
-                .font(.system(size: 40)).foregroundStyle(Palette.muted.opacity(0.5))
+                .font(.system(size: 40)).foregroundStyle(Palette.tiny)
             Text("No browser traces found.")
-                .foregroundStyle(Palette.muted)
+                .font(.system(size: 13.5, weight: .semibold))
+                .foregroundStyle(.white)
             Text("Safari data requires Full Disk Access — grant it in System Settings › Privacy & Security, then scan again.")
-                .font(.caption).foregroundStyle(Palette.muted.opacity(0.7))
+                .font(.system(size: 11)).foregroundStyle(Palette.tiny)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 380)
             Spacer()
@@ -292,25 +286,25 @@ private struct PrivacyGroupCard: View {
     private func header(rows: [AggregatedRow]) -> some View {
         HStack(spacing: 12) {
             BrowserIconView(app: group.app)
-                .frame(width: 30, height: 30)
+                .frame(width: 28, height: 28)
 
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 7) {
                     Text(group.app.displayName)
-                        .font(.body.weight(.semibold))
-                        .foregroundStyle(Palette.ink)
+                        .font(.system(size: 13.5, weight: .semibold))
+                        .foregroundStyle(.white)
                     if model.isRunning(group.app) {
-                        TagBadge(text: "Running")
+                        TagBadge(text: "Running", color: PillTone.warn.text)
                     }
                 }
                 Text("\(model.selectedRowCount(in: group)) of \(rows.count) selected · \(ByteFormat.human(group.totalBytes))")
-                    .font(.caption)
-                    .foregroundStyle(Palette.muted)
+                    .font(.system(size: 11))
+                    .foregroundStyle(Palette.tiny)
             }
 
             Spacer()
 
-            GlassPill(title: allSelected ? "Deselect all" : "Select all") {
+            CompactCapsuleButton(title: allSelected ? "Deselect all" : "Select all") {
                 model.toggleGroup(group)
             }
         }
@@ -324,15 +318,13 @@ private struct PrivacyGroupCard: View {
 
     private var runningNotice: some View {
         HStack(spacing: 8) {
-            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(Palette.warn)
+            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(PillTone.warn.text)
             Text("“\(group.app.displayName)” is running. Quit it first so its files aren’t rewritten.")
-                .font(.caption).foregroundStyle(Palette.ink2)
+                .font(.system(size: 11)).foregroundStyle(Palette.ink2)
             Spacer()
-            Button("Quit") {
+            CompactCapsuleButton(title: "Quit") {
                 model.quit(group.app)
             }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
         }
         .padding(.horizontal, 14).padding(.vertical, 9)
         .overlay(alignment: .bottom) {
@@ -352,14 +344,9 @@ private struct AggregatedPrivacyRow: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            Button(action: onToggle) {
-                Image(systemName: selected ? "checkmark.circle.fill" : "circle")
-                    .font(.system(size: 18))
-                    .foregroundStyle(selected ? .white : .white.opacity(0.28))
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(row.kind.titleEN)
-            .accessibilityValue(selected ? "Selected" : "Not selected")
+            GlassCheckbox(on: selected, action: onToggle)
+                .accessibilityLabel(row.kind.titleEN)
+                .accessibilityValue(selected ? "Selected" : "Not selected")
 
             Image(systemName: row.kind.symbol)
                 .font(.system(size: 14))
@@ -369,18 +356,18 @@ private struct AggregatedPrivacyRow: View {
             VStack(alignment: .leading, spacing: 1) {
                 HStack(spacing: 7) {
                     Text(row.kind.titleEN)
-                        .font(.callout)
-                        .foregroundStyle(Palette.ink2)
+                        .font(.system(size: 12.5))
+                        .foregroundStyle(.white.opacity(0.85))
                     if let ctx = row.context {
-                        TagBadge(text: ctx)
+                        TagBadge(text: ctx, color: PillTone.warn.text)
                     }
                     if let note = row.kind.impactNote {
-                        TagBadge(text: note)
+                        TagBadge(text: note, color: PillTone.warn.text)
                     }
                 }
                 Text(row.kind.detailEN)
-                    .font(.caption2)
-                    .foregroundStyle(Palette.muted.opacity(0.8))
+                    .font(.system(size: 11))
+                    .foregroundStyle(Palette.tiny)
                     .lineLimit(1)
                     .truncationMode(.tail)
             }
@@ -388,11 +375,36 @@ private struct AggregatedPrivacyRow: View {
             Spacer()
 
             Text(ByteFormat.human(row.totalSize))
-                .font(.caption).monospacedDigit()
-                .foregroundStyle(Palette.muted)
+                .font(.system(size: 13)).monospacedDigit()
+                .foregroundStyle(Palette.sub)
         }
-        .padding(.vertical, 6)
+        .padding(.vertical, 8)
         .padding(.horizontal, 14)
+    }
+}
+
+// MARK: - Compact capsule button (card headers, notices)
+
+/// The small "Select all" / "Quit" / "Open Settings" button inside glass cards:
+/// 11 pt text on a white-0.10 capsule.
+private struct CompactCapsuleButton: View {
+    let title: String
+    let action: () -> Void
+
+    @State private var hover = false
+
+    var body: some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.82))
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(Capsule().fill(.white.opacity(hover ? 0.14 : 0.10)))
+                .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .onHover { hover = $0 }
     }
 }
 

@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// App sections shown in the sidebar rail.
+/// App sections shown in the sidebar.
 enum AppSection: String, CaseIterable, Identifiable {
     case smartScan, uninstaller, largeFiles, privacy
 
@@ -21,20 +21,21 @@ enum AppSection: String, CaseIterable, Identifiable {
         case .privacy: return "hand.raised"
         }
     }
-    /// The module's signature stage + accent colors.
-    var theme: ModuleTheme {
+    /// The sidebar nav dot (mockup `.nid` gradients).
+    var dotGradient: LinearGradient {
+        let colors: [Color]
         switch self {
-        case .smartScan: return .magenta
-        case .uninstaller: return .indigo
-        case .largeFiles: return .teal
-        case .privacy: return .blue
+        case .smartScan:   colors = [Color(hex: 0x6FD3FF), Color(hex: 0x8F5BFF)]
+        case .largeFiles:  colors = [Color(hex: 0x5BE0C8), Color(hex: 0x1FA88F)]
+        case .privacy:     colors = [Color(hex: 0xFF8FD0), Color(hex: 0xC04AE0)]
+        case .uninstaller: colors = [Color(hex: 0xFFC37B), Color(hex: 0xFF7A4D)]
         }
+        return LinearGradient(colors: colors, startPoint: .topLeading, endPoint: .bottomTrailing)
     }
 }
 
-/// Top-level shell: one full-window module stage, the icon rail, and the
-/// active section's content. The titlebar is hidden so the stage runs edge to
-/// edge; switching modules crossfades the stage to the new signature gradient.
+/// Top-level shell: the aurora stage behind a labeled glass sidebar and the
+/// active section. Privacy warms the aurora; everything else shares one stage.
 public struct RootView: View {
     public init() {}
 
@@ -48,9 +49,8 @@ public struct RootView: View {
 
     public var body: some View {
         ZStack {
-            ModuleBackground(theme: selection.theme, active: stageActive)
-                .id(selection)
-                .transition(.opacity)
+            AuroraBackground(variant: selection == .privacy ? .privacy : .standard)
+                .animation(.easeInOut(duration: 0.35), value: selection == .privacy)
 
             HStack(spacing: 0) {
                 Sidebar(selection: $selection)
@@ -70,22 +70,7 @@ public struct RootView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        .frame(minWidth: 960, minHeight: 680)
+        .frame(minWidth: 1080, minHeight: 680)
         .preferredColorScheme(.dark)
-    }
-
-    /// Whether the visible module is actively scanning or cleaning — drives
-    /// the stage's brighter, breathing glow.
-    private var stageActive: Bool {
-        switch selection {
-        case .smartScan:
-            return scanModel.phase == .scanning || scanModel.phase == .cleaning
-        case .uninstaller:
-            return uninstallModel.phase == .scanning
-        case .largeFiles:
-            return largeFilesModel.phase == .scanning || largeFilesModel.phase == .cleaning
-        case .privacy:
-            return privacyModel.phase == .scanning || privacyModel.phase == .cleaning
-        }
     }
 }

@@ -23,167 +23,11 @@ struct CategoryStyle {
     }
 }
 
-// MARK: - Hero blob (the module's centerpiece artwork)
-
-/// A soft eight-lobed "flower blob" — two stacked continuous-corner squares,
-/// one rotated 45° — standing in for CleanMyMac's 3D mascots. Carries the
-/// module's glow colors and a big white symbol.
-struct HeroBlob: View {
-    let theme: ModuleTheme
-    let symbol: String
-    var animating: Bool = false
-    var size: CGFloat = 196
-
-    @State private var breathe = false
-
-    private var fill: LinearGradient {
-        LinearGradient(colors: [theme.glow.opacity(0.95), theme.accent.opacity(0.55)],
-                       startPoint: .topLeading, endPoint: .bottomTrailing)
-    }
-
-    var body: some View {
-        ZStack {
-            lobe.rotationEffect(.degrees(45))
-            lobe
-        }
-        .compositingGroup()
-        .shadow(color: theme.deep.opacity(0.55), radius: 28, y: 18)
-        .overlay(
-            Image(systemName: symbol)
-                .font(.system(size: size * 0.28, weight: .semibold))
-                .foregroundStyle(.white)
-                .shadow(color: .black.opacity(0.25), radius: 8, y: 4)
-        )
-        .frame(width: size, height: size)
-        .scaleEffect(animating && breathe ? 1.05 : 1)
-        .animation(animating ? .easeInOut(duration: 1.6).repeatForever(autoreverses: true) : .snappy,
-                   value: breathe)
-        .onAppear { breathe = true }
-    }
-
-    private var lobe: some View {
-        RoundedRectangle(cornerRadius: size * 0.28, style: .continuous)
-            .fill(fill)
-            .overlay(
-                RoundedRectangle(cornerRadius: size * 0.28, style: .continuous)
-                    .fill(LinearGradient(colors: [.white.opacity(0.30), .clear],
-                                         startPoint: .top, endPoint: .center))
-            )
-            .frame(width: size * 0.74, height: size * 0.74)
-    }
-}
-
-// MARK: - Circular primary action button
-
-/// The large round Scan / Stop / Clean button pinned at the bottom center of
-/// every module, ringed like CleanMyMac's. `.halo` is a static ring;
-/// `.progress` spins an arc around the circle while work is running.
-struct CircleActionButton: View {
-    enum Ring { case none, halo, progress }
-
-    let title: String
-    let theme: ModuleTheme
-    var ring: Ring = .halo
-    var disabled: Bool = false
-    let action: () -> Void
-
-    @State private var spin = false
-    @State private var hover = false
-
-    var body: some View {
-        Button(action: action) {
-            ZStack {
-                ringView
-
-                Circle()
-                    .fill(theme.accentGradient)
-                    .overlay(Circle().strokeBorder(.white.opacity(0.25), lineWidth: 1))
-                    .frame(width: 72, height: 72)
-                    .shadow(color: theme.accent.opacity(disabled ? 0 : 0.55),
-                            radius: hover ? 26 : 18, y: 6)
-
-                Text(title)
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .minimumScaleFactor(0.7)
-                    .frame(width: 62)
-            }
-            .frame(width: 94, height: 94)
-            .contentShape(Circle())
-        }
-        .buttonStyle(.plain)
-        .disabled(disabled)
-        .opacity(disabled ? 0.45 : 1)
-        .scaleEffect(hover && !disabled ? 1.04 : 1)
-        .onHover { h in withAnimation(.easeOut(duration: 0.15)) { hover = h } }
-        .onAppear { startSpin() }
-        .onChange(of: ring == .progress) { _, _ in startSpin() }
-    }
-
-    @ViewBuilder private var ringView: some View {
-        switch ring {
-        case .none:
-            EmptyView()
-        case .halo:
-            Circle()
-                .strokeBorder(.white.opacity(0.28), lineWidth: 1.5)
-                .frame(width: 88, height: 88)
-        case .progress:
-            Circle()
-                .strokeBorder(.white.opacity(0.16), lineWidth: 2)
-                .frame(width: 88, height: 88)
-            Circle()
-                .trim(from: 0, to: 0.28)
-                .stroke(.white.opacity(0.9), style: StrokeStyle(lineWidth: 2, lineCap: .round))
-                .frame(width: 86, height: 86)
-                .rotationEffect(.degrees(spin ? 360 : 0))
-        }
-    }
-
-    private func startSpin() {
-        spin = false
-        guard ring == .progress else { return }
-        withAnimation(.linear(duration: 1.1).repeatForever(autoreverses: false)) { spin = true }
-    }
-}
-
-// MARK: - Glass capsule button (secondary actions)
-
-struct GlassPill: View {
-    let title: String
-    var systemImage: String?
-    var prominent: Bool = false
-    let action: () -> Void
-
-    @State private var hover = false
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 6) {
-                if let systemImage {
-                    Image(systemName: systemImage).font(.system(size: 11, weight: .semibold))
-                }
-                Text(title).font(.system(size: 12, weight: .medium))
-            }
-            .foregroundStyle(.white)
-            .padding(.horizontal, 13)
-            .padding(.vertical, 7)
-            .background(Capsule().fill(.white.opacity(baseOpacity + (hover ? 0.05 : 0))))
-            .overlay(Capsule().strokeBorder(.white.opacity(prominent ? 0.34 : 0.22), lineWidth: 1))
-            .contentShape(Capsule())
-        }
-        .buttonStyle(.plain)
-        .onHover { hover = $0 }
-    }
-
-    private var baseOpacity: Double { prominent ? 0.20 : 0.10 }
-}
-
 // MARK: - Tiny status chip
 
 struct TagBadge: View {
     let text: String
-    var color: Color = Palette.warn
+    var color: Color = PillTone.warn.text
 
     var body: some View {
         Text(text)
@@ -194,125 +38,273 @@ struct TagBadge: View {
     }
 }
 
-// MARK: - Category result card (frosted glass, tap anywhere → detail)
+// MARK: - Aurora components (per DESIGN.md / the Claude Design mockup)
 
-struct CategoryGridCard: View {
-    let group: ScanResultGroup
-    let model: ScanViewModel
-    let onOpen: () -> Void
+/// The glossy 3D sphere with halo glow and two satellite orbs — the app's
+/// centerpiece on idle and busy screens (mockup `.orb`).
+struct Orb: View {
+    var size: CGFloat = 230
+    var animating: Bool = false
 
-    @State private var hover = false
-    private var style: CategoryStyle { .forID(group.category.id) }
+    @State private var breathe = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack(alignment: .top) {
-                RoundedRectangle(cornerRadius: 11, style: .continuous)
-                    .fill(style.gradient)
-                    .frame(width: 40, height: 40)
-                    .overlay(Image(systemName: style.symbol)
-                        .font(.system(size: 17, weight: .semibold))
-                        .foregroundStyle(.white))
-                    .shadow(color: style.glow.opacity(0.45), radius: 9, y: 4)
+        ZStack {
+            // Halo glow
+            RadialGradient(colors: [Color(hex: 0x7896FF, alpha: 0.45),
+                                    Color(hex: 0xA05AFF, alpha: 0.25),
+                                    .clear],
+                           center: .center, startRadius: 0, endRadius: size * 0.72)
+                .frame(width: size * 1.44, height: size * 1.44)
+                .blur(radius: 24)
 
-                Spacer()
+            // Body
+            Circle()
+                .fill(RadialGradient(colors: [Color(hex: 0xBCD6FF),
+                                              Color(hex: 0x7FA0FF),
+                                              Color(hex: 0x8F5BFF),
+                                              Color(hex: 0x5A3AB8)],
+                                     center: UnitPoint(x: 0.32, y: 0.28),
+                                     startRadius: 0, endRadius: size * 0.72))
+                .frame(width: size * 0.72, height: size * 0.72)
+                .overlay( // top gloss
+                    Circle().fill(
+                        LinearGradient(colors: [.white.opacity(0.45), .clear],
+                                       startPoint: .top, endPoint: .center))
+                        .frame(width: size * 0.52, height: size * 0.30)
+                        .blur(radius: 6)
+                        .offset(y: -size * 0.20)
+                )
+                .shadow(color: Color(hex: 0x3C1E8C, alpha: 0.6), radius: 30, y: 20)
+                .scaleEffect(animating && breathe ? 1.04 : 1)
 
-                Button { model.toggleCategory(group) } label: {
-                    Image(systemName: masterIcon)
-                        .font(.system(size: 21))
-                        .foregroundStyle(masterOn ? Color.white : .white.opacity(0.30))
-                }
-                .buttonStyle(.plain)
-                .help(masterOn ? "Deselect all in this category" : "Select all in this category")
-            }
-
-            Spacer(minLength: 10)
-
-            Text(ByteFormat.human(group.totalBytes))
-                .font(.system(size: 26, weight: .bold, design: .rounded))
-                .foregroundStyle(.white)
-
-            Text(group.category.nameEN)
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(.white.opacity(0.92))
-                .padding(.top, 1)
-
-            HStack {
-                Text("\(group.items.count) items")
-                    .font(.caption)
-                    .foregroundStyle(Palette.muted)
-                Spacer()
-                GlassPill(title: "Review", action: onOpen)
-            }
-            .padding(.top, 9)
+            satellite(Color(hex: 0xFFD6F2), Color(hex: 0xE05BBF), d: size * 0.15)
+                .offset(x: -size * 0.34, y: -size * 0.14)
+            satellite(Color(hex: 0xD6FFF2), Color(hex: 0x2FD4A0), d: size * 0.09)
+                .offset(x: size * 0.33, y: size * 0.16)
         }
-        .padding(16)
-        .frame(height: 172)
-        .glassCard(radius: 16, focused: hover)
-        .scaleEffect(hover ? 1.012 : 1)
-        .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .onTapGesture { onOpen() }
-        .onHover { h in withAnimation(.easeOut(duration: 0.15)) { hover = h } }
+        .frame(width: size, height: size)
+        .animation(animating ? .easeInOut(duration: 1.8).repeatForever(autoreverses: true) : .snappy,
+                   value: breathe)
+        .onAppear { breathe = true }
+        .accessibilityHidden(true)
     }
 
-    private var masterOn: Bool { model.categoryState(group) != .none }
-
-    private var masterIcon: String {
-        switch model.categoryState(group) {
-        case .all:  return "checkmark.circle.fill"
-        case .some: return "minus.circle.fill"
-        case .none: return "circle"
-        }
+    private func satellite(_ hi: Color, _ lo: Color, d: CGFloat) -> some View {
+        Circle()
+            .fill(RadialGradient(colors: [hi, lo],
+                                 center: UnitPoint(x: 0.35, y: 0.30),
+                                 startRadius: 0, endRadius: d * 0.8))
+            .frame(width: d, height: d)
+            .shadow(color: lo.opacity(0.5), radius: 10, y: 6)
     }
 }
 
-// MARK: - One file row (used in detail lists)
+/// The 104 pt circular primary button on idle screens (mockup `.cta`).
+struct CTACircle: View {
+    let title: String
+    var disabled: Bool = false
+    let action: () -> Void
 
-struct ItemRow: View {
-    let item: ScanItem
-    let selected: Bool
-    let color: Color
-    let onToggle: () -> Void
+    @State private var hover = false
 
     var body: some View {
-        HStack(spacing: 10) {
-            Button(action: onToggle) {
-                Image(systemName: selected ? "checkmark.circle.fill" : "circle")
-                    .font(.system(size: 18))
-                    .foregroundStyle(selected ? color : .white.opacity(0.28))
+        Button(action: action) {
+            ZStack {
+                Circle()
+                    .fill(Palette.actionDiagonal)
+                    .overlay( // top-left gloss
+                        Circle().fill(
+                            RadialGradient(colors: [.white.opacity(0.35), .clear],
+                                           center: UnitPoint(x: 0.32, y: 0.26),
+                                           startRadius: 0, endRadius: 52))
+                    )
+                    .overlay(Circle().strokeBorder(.white.opacity(0.30), lineWidth: 1))
+
+                Text(title)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .minimumScaleFactor(0.7)
+                    .frame(width: 88)
             }
-            .buttonStyle(.plain)
-
-            VStack(alignment: .leading, spacing: 1) {
-                Text(item.url.lastPathComponent)
-                    .font(.callout)
-                    .foregroundStyle(Palette.ink2)
-                    .lineLimit(1)
-                Text(item.path)
-                    .font(.caption2)
-                    .foregroundStyle(Palette.muted.opacity(0.8))
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-            }
-
-            Spacer()
-
-            Text(ByteFormat.human(item.sizeBytes))
-                .font(.caption)
-                .monospacedDigit()
-                .foregroundStyle(Palette.muted)
-
-            Button {
-                NSWorkspace.shared.activateFileViewerSelecting([item.url])
-            } label: {
-                Image(systemName: "magnifyingglass")
-                    .font(.system(size: 12))
-                    .foregroundStyle(Palette.muted)
-            }
-            .buttonStyle(.plain)
-            .help("Reveal in Finder")
+            .frame(width: 104, height: 104)
+            .background( // halo ring
+                Circle().fill(Palette.actionGlow.opacity(disabled ? 0 : 0.14))
+                    .frame(width: 120, height: 120)
+            )
+            .shadow(color: Palette.actionGlow.opacity(disabled ? 0 : (hover ? 0.7 : 0.55)),
+                    radius: hover ? 34 : 26)
+            .contentShape(Circle())
         }
-        .padding(.vertical, 7)
-        .padding(.horizontal, 14)
+        .buttonStyle(.plain)
+        .disabled(disabled)
+        .opacity(disabled ? 0.5 : 1)
+        .scaleEffect(hover && !disabled ? 1.03 : 1)
+        .onHover { h in withAnimation(.easeOut(duration: 0.15)) { hover = h } }
+    }
+}
+
+/// Bottom-bar primary button (mockup `.btn`): radius-10 gradient rectangle.
+struct GradientButton: View {
+    let title: String
+    var disabled: Bool = false
+    let action: () -> Void
+
+    @State private var hover = false
+
+    var body: some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 30)
+                .padding(.vertical, 10)
+                .background(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(Palette.action)
+                        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .strokeBorder(.white.opacity(0.30), lineWidth: 1))
+                )
+                .shadow(color: Palette.actionGlow.opacity(disabled ? 0 : 0.4),
+                        radius: hover ? 16 : 11, y: 5)
+                .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .disabled(disabled)
+        .opacity(disabled ? 0.5 : 1)
+        .onHover { h in withAnimation(.easeOut(duration: 0.12)) { hover = h } }
+    }
+}
+
+/// Bottom-bar secondary button (mockup `.btn.ghost`).
+struct GhostButton: View {
+    let title: String
+    let action: () -> Void
+
+    @State private var hover = false
+
+    var body: some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(.white)
+                .padding(.horizontal, 24)
+                .padding(.vertical, 10)
+                .background(
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .fill(.white.opacity(hover ? 0.14 : 0.10))
+                        .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous)
+                            .strokeBorder(.white.opacity(0.16), lineWidth: 1))
+                )
+                .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .onHover { hover = $0 }
+    }
+}
+
+/// Status chip in the top bar and on rows (mockup `.pill`).
+struct StatusPill: View {
+    let text: String
+    var tone: PillTone = .blue
+
+    var body: some View {
+        Text(text)
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(tone.text)
+            .padding(.horizontal, 11)
+            .padding(.vertical, 4)
+            .background(Capsule().fill(tone.fill))
+    }
+}
+
+/// Rounded-square selection checkbox (mockup `.cb`): purple gradient + white
+/// check when on, hairline square when off.
+struct GlassCheckbox: View {
+    let on: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            RoundedRectangle(cornerRadius: 5, style: .continuous)
+                .fill(on ? AnyShapeStyle(Palette.check) : AnyShapeStyle(Color.clear))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 5, style: .continuous)
+                        .strokeBorder(.white.opacity(on ? 0 : 0.30), lineWidth: 1.5)
+                )
+                .overlay {
+                    if on {
+                        Image(systemName: "checkmark")
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundStyle(.white)
+                    }
+                }
+                .frame(width: 16, height: 16)
+                .shadow(color: on ? Palette.checkGlow : .clear, radius: 4, y: 2)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+/// 56 pt screen header (mockup `.tbar`): 19 pt bold title left, trailing
+/// content (usually a StatusPill) right.
+struct TopBar<Trailing: View>: View {
+    let title: String
+    @ViewBuilder var trailing: Trailing
+
+    var body: some View {
+        HStack(spacing: 14) {
+            Text(title)
+                .font(.system(size: 19, weight: .bold))
+                .foregroundStyle(.white)
+            Spacer()
+            trailing
+        }
+        .padding(.horizontal, 26)
+        .frame(height: 56)
+    }
+}
+
+/// 70 pt bottom action bar (mockup `.bbar`).
+struct BottomBar<Content: View>: View {
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        HStack(spacing: 14) { content }
+            .padding(.horizontal, 26)
+            .frame(height: 70)
+            .frame(maxWidth: .infinity)
+            .background(Palette.barFill)
+            .overlay(alignment: .top) { Rectangle().fill(Palette.hair).frame(height: 1) }
+    }
+}
+
+/// Glass stat tile on the idle dashboard (mockup `.stat`). Real data only.
+struct StatCard: View {
+    let label: String
+    let value: String
+    var detail: String = ""
+    var valueColor: Color = .white
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text(label.uppercased())
+                .font(.system(size: 10, weight: .bold))
+                .tracking(1)
+                .foregroundStyle(Palette.slab)
+            Text(value)
+                .font(.system(size: 21, weight: .bold))
+                .foregroundStyle(valueColor)
+            if !detail.isEmpty {
+                Text(detail)
+                    .font(.system(size: 11))
+                    .foregroundStyle(Palette.tiny)
+            }
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .glassCard(radius: 14)
     }
 }

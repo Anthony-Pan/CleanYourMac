@@ -1,41 +1,59 @@
 import SwiftUI
+import CleanCore
 
-/// CleanMyMac-5-style icon rail: a narrow strip of glassy square tiles over
-/// the module stage, darkened so the active module's gradient shows through.
-/// Labels live in tooltips; the window titlebar is hidden, so the rail leaves
-/// room for the traffic lights at the top.
+/// The 210 pt labeled glass sidebar from the mockup: gradient-dot nav items
+/// under uppercase section headers, real disk usage at the bottom. The window
+/// titlebar is hidden, so the top leaves clearance for the traffic lights.
 struct Sidebar: View {
     @Binding var selection: AppSection
 
     var body: some View {
-        VStack(spacing: 0) {
-            VStack(spacing: 10) {
-                ForEach(AppSection.allCases) { section in
-                    RailTile(section: section, selected: selection == section) {
-                        withAnimation(.snappy(duration: 0.25)) { selection = section }
-                    }
-                }
-            }
-            .padding(.top, 54)
+        VStack(alignment: .leading, spacing: 0) {
+            item(.smartScan)
+                .padding(.top, 44)
+
+            header("Cleanup")
+            item(.largeFiles)
+
+            header("Protection")
+            item(.privacy)
+
+            header("Applications")
+            item(.uninstaller)
 
             Spacer()
 
-            Image(systemName: "shield.lefthalf.filled")
-                .font(.system(size: 12))
-                .foregroundStyle(.white.opacity(0.45))
-                .help("Files go to the Trash — recoverable")
-                .padding(.bottom, 16)
+            DiskGauge()
+                .padding(.horizontal, 12)
         }
-        .frame(width: 68)
+        .padding(.horizontal, 10)
+        .padding(.bottom, 16)
+        .frame(width: 210)
         .frame(maxHeight: .infinity)
-        .background(Color.black.opacity(0.30))
+        .background(.white.opacity(0.045))
         .overlay(alignment: .trailing) {
             Rectangle().fill(.white.opacity(0.07)).frame(width: 1)
         }
     }
+
+    private func header(_ text: String) -> some View {
+        Text(text.uppercased())
+            .font(.system(size: 9.5, weight: .bold))
+            .tracking(1.3)
+            .foregroundStyle(.white.opacity(0.32))
+            .padding(.horizontal, 12)
+            .padding(.top, 15)
+            .padding(.bottom, 5)
+    }
+
+    private func item(_ section: AppSection) -> some View {
+        NavItem(section: section, selected: selection == section) {
+            withAnimation(.snappy(duration: 0.2)) { selection = section }
+        }
+    }
 }
 
-private struct RailTile: View {
+private struct NavItem: View {
     let section: AppSection
     let selected: Bool
     let action: () -> Void
@@ -44,24 +62,88 @@ private struct RailTile: View {
 
     var body: some View {
         Button(action: action) {
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(.white.opacity(selected ? 0.20 : (hover ? 0.10 : 0.05)))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .strokeBorder(.white.opacity(selected ? 0.30 : 0.10), lineWidth: 1)
-                )
-                .overlay(
-                    Image(systemName: section.symbol)
-                        .font(.system(size: 16, weight: selected ? .semibold : .regular))
-                        .foregroundStyle(.white.opacity(selected ? 1 : 0.60))
-                )
-                .frame(width: 42, height: 42)
-                .shadow(color: .black.opacity(selected ? 0.25 : 0), radius: 8, y: 4)
-                .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            HStack(spacing: 10) {
+                Circle()
+                    .fill(section.dotGradient)
+                    .frame(width: 14, height: 14)
+                    .shadow(color: .black.opacity(0.4), radius: 4, y: 2)
+
+                Text(section.title)
+                    .font(.system(size: 12.5, weight: .medium))
+                    .foregroundStyle(selected ? .white : .white.opacity(0.72))
+
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(.white.opacity(selected ? 0.13 : (hover ? 0.06 : 0)))
+            )
+            .overlay(alignment: .top) {
+                if selected {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(LinearGradient(colors: [.white.opacity(0.10), .clear],
+                                             startPoint: .top, endPoint: .bottom))
+                        .frame(height: 12)
+                        .padding(.horizontal, 1)
+                }
+            }
+            .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
         }
         .buttonStyle(.plain)
-        .help(section.title)
-        .onHover { h in withAnimation(.easeOut(duration: 0.12)) { hover = h } }
+        .onHover { hover = $0 }
         .accessibilityLabel(section.title)
+    }
+}
+
+// MARK: - Real disk usage (mockup `.disk`)
+
+private struct DiskGauge: View {
+    @State private var used: Int64 = 0
+    @State private var total: Int64 = 0
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text("Macintosh HD")
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.78))
+
+            GeometryReader { geo in
+                ZStack(alignment: .leading) {
+                    Capsule().fill(.white.opacity(0.13))
+                    Capsule()
+                        .fill(LinearGradient(colors: [Color(hex: 0x6FD3FF), Color(hex: 0xB06CFF)],
+                                             startPoint: .leading, endPoint: .trailing))
+                        .frame(width: geo.size.width * fraction)
+                }
+            }
+            .frame(height: 5)
+            .padding(.top, 7)
+            .padding(.bottom, 5)
+
+            Text(summary)
+                .font(.system(size: 10.5))
+                .foregroundStyle(.white.opacity(0.4))
+        }
+        .onAppear(perform: load)
+    }
+
+    private var fraction: CGFloat {
+        total > 0 ? CGFloat(used) / CGFloat(total) : 0
+    }
+
+    private var summary: String {
+        guard total > 0 else { return "—" }
+        return "\(ByteFormat.human(used)) used of \(ByteFormat.human(total))"
+    }
+
+    private func load() {
+        let keys: Set<URLResourceKey> = [.volumeTotalCapacityKey, .volumeAvailableCapacityForImportantUsageKey]
+        guard let values = try? URL(fileURLWithPath: "/").resourceValues(forKeys: keys),
+              let capacity = values.volumeTotalCapacity,
+              let available = values.volumeAvailableCapacityForImportantUsage else { return }
+        total = Int64(capacity)
+        used = Int64(capacity) - available
     }
 }

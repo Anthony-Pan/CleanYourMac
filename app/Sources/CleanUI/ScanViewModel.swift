@@ -188,3 +188,32 @@ final class ScanViewModel {
         phase = .done
     }
 }
+
+// MARK: - Scanning-screen category progress
+
+/// State of one category while a scan runs, for the per-category status rows.
+enum CategoryScanState {
+    case done, active, waiting
+}
+
+extension ScanViewModel {
+    /// One row per scan category, in scan order: categories already collected
+    /// into `groups` are `.done` with their byte totals, the first remaining
+    /// category is `.active`, and the rest are `.waiting`.
+    var categoryProgress: [(id: String, name: String, state: CategoryScanState, bytes: Int64)] {
+        let doneBytes = Dictionary(uniqueKeysWithValues: groups.map { ($0.id, $0.totalBytes) })
+        var seenActive = false
+        var rows: [(id: String, name: String, state: CategoryScanState, bytes: Int64)] = []
+        for category in categories {
+            if let bytes = doneBytes[category.id] {
+                rows.append((id: category.id, name: category.nameEN, state: .done, bytes: bytes))
+            } else if !seenActive {
+                seenActive = true
+                rows.append((id: category.id, name: category.nameEN, state: .active, bytes: 0))
+            } else {
+                rows.append((id: category.id, name: category.nameEN, state: .waiting, bytes: 0))
+            }
+        }
+        return rows
+    }
+}
