@@ -7,6 +7,8 @@ struct SmartScanView: View {
     @State private var showConfirm = false
     @State private var volumeFree: Int64?
     @State private var volumeTotal: Int64?
+    /// Folder name → resolved app display name (nil = looked up, no match).
+    @State private var displayNameCache: [String: String?] = [:]
 
     init(model: ScanViewModel) { self.model = model }
 
@@ -88,7 +90,9 @@ struct SmartScanView: View {
     // MARK: - Scanning (live discovery)
 
     private var scanningView: some View {
-        VStack(spacing: 0) {
+        let doneCount = model.categoryProgress.filter { $0.state == .done }.count
+        let totalCount = model.categoryProgress.count
+        return VStack(spacing: 0) {
             TopBar(title: "Smart Scan") { StatusPill(text: "Scanning…", tone: .blue) }
 
             Spacer()
@@ -96,31 +100,38 @@ struct SmartScanView: View {
             Orb(size: 230, animating: true)
                 .overlay(
                     VStack(spacing: 3) {
+                        Text("JUNK FOUND")
+                            .font(.system(size: 10.5, weight: .semibold))
+                            .tracking(1.3)
+                            .foregroundStyle(Palette.slab)
                         Text(ByteFormat.human(model.scannedBytes))
                             .font(.system(size: 32, weight: .bold))
                             .monospacedDigit()
                             .foregroundStyle(.white)
                             .contentTransition(.numericText())
                             .animation(.snappy, value: model.scannedBytes)
-                        Text(model.currentLocation.isEmpty
-                             ? "Scanning…"
-                             : "Scanning \(model.currentLocation)…")
-                            .font(.system(size: 12))
-                            .foregroundStyle(.white.opacity(0.85))
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                            .frame(maxWidth: 150)
                     }
                 )
 
-            SweepBar()
+            SweepBar(fraction: totalCount > 0 ? Double(doneCount) / Double(totalCount) : 0)
                 .padding(.top, 16)
 
-            Text("\(model.foundCount) items found")
+            Text(model.currentLocation.isEmpty
+                 ? "Scanning… · \(model.foundCount) items found"
+                 : "Scanning \(model.currentLocation) · \(model.foundCount) items found")
+                .font(.system(size: 12.5))
+                .monospacedDigit()
+                .foregroundStyle(Palette.sub)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .frame(maxWidth: 380)
+                .padding(.top, 10)
+
+            Text("Step \(min(doneCount + 1, totalCount)) of \(totalCount) locations")
                 .font(.system(size: 11))
                 .monospacedDigit()
                 .foregroundStyle(Palette.tiny)
-                .padding(.top, 8)
+                .padding(.top, 4)
 
             VStack(spacing: 8) {
                 ForEach(model.categoryProgress, id: \.id) { row in
@@ -184,15 +195,38 @@ struct SmartScanView: View {
                 .foregroundStyle(.white)
                 .padding(.top, 6)
 
+            Text("Moving \(model.selectedItemCount) items (\(ByteFormat.human(model.selectedBytes))) to Trash…")
+                .font(.system(size: 12.5))
+                .monospacedDigit()
+                .foregroundStyle(Palette.sub)
+                .padding(.top, 8)
+
+            SweepBar()
+                .padding(.top, 18)
+
             Spacer()
         }
     }
 
     // MARK: - Done
 
+    /// Items the last clean could not move — failed plus safety-blocked.
+    private var skippedCount: Int {
+        model.lastReport.map { $0.failed.count + $0.blocked.count } ?? 0
+    }
+
     private var doneView: some View {
-        VStack(spacing: 0) {
-            TopBar(title: "Smart Scan") { StatusPill(text: "All clean", tone: .good) }
+        let skipped = skippedCount
+        var summary = "Freed \(ByteFormat.human(model.lastReport?.freedBytes ?? 0)) · moved \(model.lastReport?.trashed.count ?? 0) items to Trash"
+        if skipped > 0 { summary += " · \(skipped) items could not be moved" }
+        return VStack(spacing: 0) {
+            TopBar(title: "Smart Scan") {
+                if skipped > 0 {
+                    StatusPill(text: "\(skipped) skipped", tone: .warn)
+                } else {
+                    StatusPill(text: "All clean", tone: .good)
+                }
+            }
 
             Spacer()
 
@@ -201,12 +235,12 @@ struct SmartScanView: View {
                 .foregroundStyle(.white)
                 .shadow(color: .white.opacity(0.45), radius: 18)
 
-            Text("All clean!")
+            Text(skipped > 0 ? "Cleaned with \(skipped) items skipped" : "All clean!")
                 .font(.system(size: 26, weight: .bold))
                 .foregroundStyle(.white)
                 .padding(.top, 18)
 
-            Text("Freed \(ByteFormat.human(model.lastReport?.freedBytes ?? 0)) · moved \(model.lastReport?.trashed.count ?? 0) items to Trash")
+            Text(summary)
                 .font(.system(size: 12.5))
                 .foregroundStyle(Palette.sub)
                 .padding(.top, 6)
@@ -223,18 +257,27 @@ struct SmartScanView: View {
     private var resultsView: some View {
         VStack(spacing: 0) {
             TopBar(title: "Smart Scan") {
-                StatusPill(text: "\(model.selectedItemCount) items · \(ByteFormat.human(model.selectedBytes))",
-                           tone: .warn)
+                if model.wasCancelled {
+                    StatusPill(text: "Partial — scan stopped early", tone: .warn)
+                } else {
+                    StatusPill(text: "\(model.selectedItemCount) selected", tone: .blue)
+                }
             }
 
             HStack(alignment: .top, spacing: 14) {
-                ScrollView {
-                    VStack(spacing: 10) {
-                        ForEach(model.groups) { group in
-                            categoryRow(group)
+                VStack(alignment: .leading, spacing: 14) {
+                    summaryHeader
+
+                    ScrollView {
+                        VStack(spacing: 10) {
+                            ForEach(sortedGroups) { group in
+                                categoryRow(group)
+                            }
                         }
+                        .padding(.bottom, 14)
                     }
-                    .padding(.bottom, 14)
+
+                    breakdownCard
                 }
 
                 inspectorPanel
@@ -251,6 +294,10 @@ struct SmartScanView: View {
 
                 Spacer()
 
+                if model.wasCancelled {
+                    GhostButton(title: "Finish scan") { model.startScan() }
+                }
+
                 GhostButton(title: "Rescan") { model.startScan() }
 
                 GradientButton(title: "Clean \(ByteFormat.human(model.selectedBytes))",
@@ -259,7 +306,7 @@ struct SmartScanView: View {
         }
         .onAppear {
             if model.openedCategoryID == nil {
-                model.openedCategoryID = model.groups.first?.id
+                model.openedCategoryID = sortedGroups.first?.id
             }
         }
         .confirmationDialog(
@@ -277,15 +324,86 @@ struct SmartScanView: View {
         model.groups.filter { model.categoryState($0) != .none }.count
     }
 
+    /// Categories biggest-first — the order of the list, legend and bar.
+    private var sortedGroups: [ScanResultGroup] {
+        model.groups.sorted { $0.totalBytes > $1.totalBytes }
+    }
+
+    private var totalFoundBytes: Int64 {
+        model.groups.reduce(0) { $0 + $1.totalBytes }
+    }
+
     private var inspectedGroup: ScanResultGroup? {
-        guard let id = model.openedCategoryID else { return model.groups.first }
-        return model.groups.first { $0.id == id } ?? model.groups.first
+        guard let id = model.openedCategoryID else { return sortedGroups.first }
+        return model.groups.first { $0.id == id } ?? sortedGroups.first
+    }
+
+    /// Hero total: what is currently selected, live — the same number the
+    /// Clean button acts on.
+    private var summaryHeader: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(ByteFormat.human(model.selectedBytes))
+                .font(.system(size: 30, weight: .bold))
+                .foregroundStyle(.white)
+                .monospacedDigit()
+                .contentTransition(.numericText())
+                .animation(.snappy, value: model.selectedBytes)
+            Text("selected in \(model.selectedItemCount) items · removed items go to the Trash")
+                .font(.system(size: 12.5))
+                .monospacedDigit()
+                .foregroundStyle(Palette.sub)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .transition(.opacity.combined(with: .move(edge: .top)))
+    }
+
+    /// Stacked proportion bar + legend: how the found junk divides across
+    /// categories. Real bytes only; hidden when nothing was found.
+    @ViewBuilder private var breakdownCard: some View {
+        let groups = sortedGroups
+        let total = totalFoundBytes
+        if total > 0 {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Space breakdown")
+                    .font(.system(size: 12.5, weight: .semibold))
+                    .foregroundStyle(Palette.ink2)
+
+                GeometryReader { geo in
+                    let gaps = CGFloat(max(0, groups.count - 1)) * 2
+                    HStack(spacing: 2) {
+                        ForEach(groups) { group in
+                            Capsule()
+                                .fill(CategoryStyle.forID(group.category.id).gradient)
+                                .frame(width: max(2, (geo.size.width - gaps)
+                                    * CGFloat(group.totalBytes) / CGFloat(total)))
+                        }
+                    }
+                }
+                .frame(height: 10)
+
+                ForEach(groups) { group in
+                    HStack(spacing: 8) {
+                        Circle()
+                            .fill(CategoryStyle.forID(group.category.id).gradient)
+                            .frame(width: 8, height: 8)
+                        Text(group.category.nameEN)
+                            .font(.system(size: 11.5))
+                            .foregroundStyle(Palette.sub)
+                        Spacer()
+                        SizeText(group.totalBytes)
+                    }
+                }
+            }
+            .padding(16)
+            .glassCard(radius: 16)
+        }
     }
 
     private func categoryRow(_ group: ScanResultGroup) -> some View {
         let style = CategoryStyle.forID(group.category.id)
+        let state = model.checkState(group)
         return HStack(spacing: 12) {
-            GlassCheckbox(on: model.categoryState(group) != .none) {
+            GlassCheckbox(state: state) {
                 model.toggleCategory(group)
             }
 
@@ -296,24 +414,27 @@ struct SmartScanView: View {
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(.white))
 
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: 4) {
                 Text(group.category.nameEN)
                     .font(.system(size: 13.5, weight: .semibold))
                     .foregroundStyle(.white)
-                Text("\(group.items.count) items")
+                RelativeSizeBar(value: group.totalBytes,
+                                max: sortedGroups.first?.totalBytes ?? 0,
+                                gradient: style.gradient)
+                Text(state == .mixed
+                     ? "\(model.selectedCount(in: group)) of \(group.items.count) selected"
+                     : "\(group.items.count) items · \(group.category.detailEN)")
                     .font(.system(size: 11))
                     .foregroundStyle(Palette.tiny)
+                    .lineLimit(1)
             }
 
             Spacer()
 
-            Text(ByteFormat.human(group.totalBytes))
-                .font(.system(size: 13))
-                .monospacedDigit()
-                .foregroundStyle(Palette.sub)
+            SizeText(group.totalBytes, emphasized: group.id == sortedGroups.first?.id)
         }
         .padding(.horizontal, 14)
-        .padding(.vertical, 12)
+        .padding(.vertical, 16)
         .glassCard(radius: 14, focused: model.openedCategoryID == group.id)
         .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         .onTapGesture { model.openedCategoryID = group.id }
@@ -327,6 +448,11 @@ struct SmartScanView: View {
                 Text(group.category.nameEN)
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(.white)
+
+                Text(group.category.detailEN)
+                    .font(.system(size: 12))
+                    .foregroundStyle(Palette.sub)
+                    .padding(.top, 3)
 
                 Text("\(model.selectedCount(in: group)) of \(group.items.count) selected · \(ByteFormat.human(group.totalBytes))")
                     .font(.system(size: 12.5))
@@ -373,18 +499,34 @@ struct SmartScanView: View {
         }
     }
 
+    /// Friendly names for bundle-id-style cache folders (e.g.
+    /// "com.apple.Safari" → "Safari"). Real lookups only — a folder that
+    /// doesn't resolve to an installed app keeps its raw name. Memoized so
+    /// NSWorkspace isn't queried on every render; `.some(nil)` records a miss.
+    private func friendlyName(for folder: String) -> String? {
+        displayNameCache[folder] ?? nil
+    }
+
+    private func resolveFriendlyName(_ folder: String) {
+        guard displayNameCache[folder] == nil else { return }
+        let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: folder)
+        displayNameCache[folder] = appURL.map { FileManager.default.displayName(atPath: $0.path) }
+    }
+
     private func inspectorItemRow(_ item: ScanItem) -> some View {
-        HStack(spacing: 9) {
+        let folder = item.url.lastPathComponent
+        let display = friendlyName(for: folder)
+        return HStack(spacing: 9) {
             GlassCheckbox(on: model.isItemSelected(item.id)) {
                 model.toggleItem(item.id)
             }
 
             VStack(alignment: .leading, spacing: 1) {
-                Text(item.url.lastPathComponent)
+                Text(display ?? folder)
                     .font(.system(size: 12))
                     .foregroundStyle(.white.opacity(0.85))
                     .lineLimit(1)
-                Text(item.path)
+                Text(display != nil ? folder : item.path)
                     .font(.system(size: 11))
                     .foregroundStyle(Palette.tiny)
                     .lineLimit(1)
@@ -393,10 +535,7 @@ struct SmartScanView: View {
 
             Spacer()
 
-            Text(ByteFormat.human(item.sizeBytes))
-                .font(.system(size: 11))
-                .monospacedDigit()
-                .foregroundStyle(Palette.sub)
+            SizeText(item.sizeBytes)
 
             Button {
                 NSWorkspace.shared.activateFileViewerSelecting([item.url])
@@ -409,25 +548,49 @@ struct SmartScanView: View {
             .help("Reveal in Finder")
         }
         .padding(.vertical, 7)
+        .onAppear { resolveFriendlyName(folder) }
     }
 }
 
-// MARK: - Indeterminate sweep progress bar (scanning screen)
+// MARK: - Sweep progress bar (scanning + cleaning screens)
 
+/// Progress capsule: determinate when `fraction` is given (fill grows with
+/// progress, shimmer sweeps inside the filled portion only), indeterminate
+/// otherwise (the original travelling gradient).
 private struct SweepBar: View {
+    var fraction: Double? = nil
+
     @State private var sweep = false
+
+    private static let width: CGFloat = 280
+    private static let gradient = LinearGradient(
+        colors: [Color(hex: 0x6FD3FF), Color(hex: 0xB06CFF)],
+        startPoint: .leading, endPoint: .trailing)
 
     var body: some View {
         ZStack(alignment: .leading) {
             Capsule().fill(.white.opacity(0.12))
 
-            Capsule()
-                .fill(LinearGradient(colors: [Color(hex: 0x6FD3FF), Color(hex: 0xB06CFF)],
-                                     startPoint: .leading, endPoint: .trailing))
-                .frame(width: 90, height: 6)
-                .offset(x: sweep ? 280 : -90)
+            if let fraction {
+                Capsule()
+                    .fill(Self.gradient)
+                    .frame(width: Self.width * min(1, max(0, fraction)), height: 6)
+                    .overlay(
+                        Capsule()
+                            .fill(.white.opacity(0.35))
+                            .frame(width: 40, height: 6)
+                            .offset(x: sweep ? Self.width : -40)
+                    )
+                    .clipShape(Capsule())
+                    .animation(.snappy, value: fraction)
+            } else {
+                Capsule()
+                    .fill(Self.gradient)
+                    .frame(width: 90, height: 6)
+                    .offset(x: sweep ? Self.width : -90)
+            }
         }
-        .frame(width: 280, height: 6)
+        .frame(width: Self.width, height: 6)
         .clipShape(Capsule())
         .onAppear {
             withAnimation(.linear(duration: 1.4).repeatForever(autoreverses: false)) {

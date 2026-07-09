@@ -25,6 +25,9 @@ final class ScanViewModel {
     /// it survives sidebar switches).
     var openedCategoryID: String?
     private(set) var lastReport: CleanReport?
+    /// True when the last scan was stopped before covering every location, so
+    /// the results screen can say the totals are partial instead of complete.
+    private(set) var wasCancelled = false
 
     // Live progress shown while scanning.
     private(set) var currentLocation: String = ""
@@ -38,10 +41,17 @@ final class ScanViewModel {
 
     init() {}
 
-    /// Preloaded state for design previews (no disk access).
+    /// Preloaded state for design previews (no disk access). A couple of items
+    /// in the largest group are left unticked so previews exercise the mixed
+    /// checkbox state.
     init(mockGroups: [ScanResultGroup], expandFirst: Bool = true) {
         groups = mockGroups
-        selectedItems = Set(mockGroups.flatMap { $0.items.map(\.id) })
+        var selection = Set(mockGroups.flatMap { $0.items.map(\.id) })
+        if let largest = mockGroups.max(by: { $0.totalBytes < $1.totalBytes }),
+           largest.items.count > 3 {
+            largest.items.suffix(2).forEach { selection.remove($0.id) }
+        }
+        selectedItems = selection
         expandedCategories = expandFirst ? Set(mockGroups.first.map { [$0.id] } ?? []) : []
         phase = .results
     }
@@ -83,6 +93,15 @@ final class ScanViewModel {
         group.items.filter { selectedItems.contains($0.id) }.count
     }
 
+    /// Tri-state checkbox mapping for a category row.
+    func checkState(_ group: ScanResultGroup) -> CheckState {
+        switch categoryState(group) {
+        case .none: return .off
+        case .some: return .mixed
+        case .all:  return .on
+        }
+    }
+
     func toggleCategory(_ group: ScanResultGroup) {
         let ids = group.items.map(\.id)
         if categoryState(group) == .all {
@@ -118,6 +137,7 @@ final class ScanViewModel {
 
     private func runScan() async {
         phase = .scanning
+        wasCancelled = false
         groups = []
         selectedItems = []
         expandedCategories = []
@@ -145,6 +165,9 @@ final class ScanViewModel {
             continuation.onTermination = { _ in producer.cancel() }
         }
 
+        // TODO(perf): coalesce `.item` events (batch every ~32 items / 100ms).
+        // The producer batching lives in Scanner.swift, which is out of this
+        // unit's scope; today's cost is one main-actor hop per found item.
         for await event in stream {
             if Task.isCancelled { break }
             switch event {
@@ -165,6 +188,7 @@ final class ScanViewModel {
 
         if Task.isCancelled {
             // Stopped early: show what was found so far, or the start screen.
+            wasCancelled = true
             phase = groups.isEmpty ? .idle : .results
         } else {
             phase = .results
