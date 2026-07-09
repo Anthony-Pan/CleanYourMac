@@ -123,8 +123,8 @@ private struct DiskGauge: View {
             .padding(.bottom, 5)
 
             Text(summary)
-                .font(.system(size: 10.5))
-                .foregroundStyle(.white.opacity(0.4))
+                .font(.system(size: 11))
+                .foregroundStyle(Palette.sub)
         }
         .onAppear(perform: load)
     }

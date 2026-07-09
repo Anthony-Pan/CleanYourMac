@@ -64,6 +64,18 @@ struct PrivacyView: View {
             .padding(.top, 30)
 
             Spacer()
+
+            // Mirrors the Smart Scan idle StatCard row. Only factual, pre-scan
+            // data belongs here — no trace counts exist before a scan runs.
+            HStack(spacing: 14) {
+                StatCard(label: "Safety",
+                         value: "Trash-only",
+                         detail: "everything is recoverable",
+                         valueColor: Color(hex: 0x7BE8A8))
+            }
+            .frame(maxWidth: 720)
+            .padding(.horizontal, 26)
+            .padding(.bottom, 26)
         }
         .frame(maxWidth: .infinity)
     }

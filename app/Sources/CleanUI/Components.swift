@@ -219,31 +219,112 @@ struct StatusPill: View {
 }
 
 /// Rounded-square selection checkbox (mockup `.cb`): purple gradient + white
-/// check when on, hairline square when off.
+/// check when on, gradient + white minus when mixed (partial selection),
+/// hairline square when off.
 struct GlassCheckbox: View {
-    let on: Bool
+    let state: CheckState
     let action: () -> Void
+
+    init(state: CheckState, action: @escaping () -> Void) {
+        self.state = state
+        self.action = action
+    }
+
+    /// Two-state convenience for plain on/off rows (leftovers, privacy traces).
+    init(on: Bool, action: @escaping () -> Void) {
+        self.init(state: on ? .on : .off, action: action)
+    }
 
     var body: some View {
         Button(action: action) {
             RoundedRectangle(cornerRadius: 5, style: .continuous)
-                .fill(on ? AnyShapeStyle(Palette.check) : AnyShapeStyle(Color.clear))
+                .fill(state == .off ? AnyShapeStyle(Color.clear) : AnyShapeStyle(Palette.check))
                 .overlay(
                     RoundedRectangle(cornerRadius: 5, style: .continuous)
-                        .strokeBorder(.white.opacity(on ? 0 : 0.30), lineWidth: 1.5)
+                        .strokeBorder(.white.opacity(state == .off ? 0.30 : 0), lineWidth: 1.5)
                 )
                 .overlay {
-                    if on {
-                        Image(systemName: "checkmark")
+                    if state != .off {
+                        Image(systemName: state == .on ? "checkmark" : "minus")
                             .font(.system(size: 9, weight: .bold))
                             .foregroundStyle(.white)
                     }
                 }
                 .frame(width: 16, height: 16)
-                .shadow(color: on ? Palette.checkGlow : .clear, radius: 4, y: 2)
+                .shadow(color: state == .off ? .clear : Palette.checkGlow, radius: 4, y: 2)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+    }
+}
+
+// MARK: - Shared size presentation (list rows everywhere)
+
+/// The one "data number" style for trailing sizes: 13.5 pt semibold white-0.82
+/// with monospaced digits so streaming updates don't wobble. `emphasized`
+/// lifts the largest row to pure white.
+struct SizeText: View {
+    private let text: String
+    private let emphasized: Bool
+
+    init(_ bytes: Int64, emphasized: Bool = false) {
+        self.init(ByteFormat.human(bytes), emphasized: emphasized)
+    }
+
+    init(_ text: String, emphasized: Bool = false) {
+        self.text = text
+        self.emphasized = emphasized
+    }
+
+    var body: some View {
+        Text(text)
+            .font(.system(size: 13.5, weight: .semibold))
+            .monospacedDigit()
+            .foregroundStyle(emphasized ? Color.white : Palette.ink2)
+    }
+}
+
+/// A thin capsule showing a row's size relative to the biggest visible row.
+/// Real bytes only — renders nothing when `max` is unknown or zero.
+struct RelativeSizeBar: View {
+    let value: Int64
+    let max: Int64
+    var gradient: LinearGradient = Palette.action
+    var height: CGFloat = 3
+
+    var body: some View {
+        if max > 0 {
+            GeometryReader { geo in
+                Capsule()
+                    .fill(gradient)
+                    .frame(width: barWidth(in: geo.size.width))
+            }
+            .frame(height: height)
+        }
+    }
+
+    /// Proportional width, floored at 2 pt so tiny-but-real values stay visible.
+    private func barWidth(in available: CGFloat) -> CGFloat {
+        guard value > 0 else { return 0 }
+        return Swift.max(2, available * CGFloat(value) / CGFloat(max))
+    }
+}
+
+/// Shimmer placeholder for a size that hasn't been computed yet. Fixed
+/// footprint so nothing reflows when the real number lands. Never shows a
+/// fake "0 B".
+struct SizePending: View {
+    var width: CGFloat = 52
+
+    @State private var dimmed = false
+
+    var body: some View {
+        Capsule()
+            .fill(.white.opacity(0.08))
+            .frame(width: width, height: 12)
+            .opacity(dimmed ? 0.5 : 1)
+            .animation(.easeInOut(duration: 1.1).repeatForever(autoreverses: true), value: dimmed)
+            .onAppear { dimmed = true }
     }
 }
 

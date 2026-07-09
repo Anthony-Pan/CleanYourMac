@@ -55,20 +55,31 @@ public enum SnapshotScreen: String, CaseIterable {
 
     private static func mockGroups() -> [ScanResultGroup] {
         // Item IDs are paths, so every mock file needs a unique name — repeated
-        // names collapse to one row in ForEach.
-        func group(_ id: String, _ name: String, _ stem: String, _ size: Int64, _ count: Int) -> ScanResultGroup {
+        // names collapse to one row in ForEach. Category details are the real
+        // `detailEN` copy from `CleanupCategory.mvpUserSafe`, never invented.
+        func group(_ id: String, _ name: String, _ detail: String,
+                   _ stem: String, _ size: Int64, _ count: Int) -> ScanResultGroup {
             let items = (0..<count).map { i in
                 ScanItem(url: URL(fileURLWithPath: "/Users/you/Library/Caches/\(stem)-\(i)"),
                          categoryID: id, sizeBytes: size, modificationDate: nil)
             }
-            let cat = CleanupCategory(id: id, nameEN: name, nameCN: name, targets: [])
+            let cat = CleanupCategory(id: id, nameEN: name, nameCN: name,
+                                      detailEN: detail, targets: [])
             return ScanResultGroup(category: cat, items: items)
         }
         return [
-            group("user-caches", "User Caches", "com.example.cache", 811_000_000, 129),
-            group("dev-tool-caches", "Developer Tool Caches", "registry-shard", 2_150_000_000, 11),
-            group("xcode-derived-data", "Xcode Derived Data", "MyApp-build", 660_000_000, 5),
-            group("app-logs", "Application Logs", "diagnostics", 2_000_000, 48),
+            group("user-caches", "User Caches",
+                  "App caches that are rebuilt automatically.",
+                  "com.example.cache", 811_000_000, 129),
+            group("dev-tool-caches", "Developer Tool Caches",
+                  "npm / Gradle / CocoaPods download caches.",
+                  "registry-shard", 2_150_000_000, 11),
+            group("xcode-derived-data", "Xcode Derived Data",
+                  "Build intermediates Xcode regenerates on next build.",
+                  "MyApp-build", 660_000_000, 5),
+            group("app-logs", "Application Logs",
+                  "Diagnostic logs written by apps.",
+                  "diagnostics", 2_000_000, 48),
         ]
     }
 

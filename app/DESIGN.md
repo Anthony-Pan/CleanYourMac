@@ -36,8 +36,20 @@ button. Privacy uses a warmer aurora variant.
   13 pt semibold. Bottom-bar primary.
 - `GhostButton(title:action:)` — white 0.10 fill, inset hairline.
 - `StatusPill(text:tone:)` — 11 pt semibold chip (top bar, badges).
-- `GlassCheckbox(on:action:)` — 16 pt rounded-square (radius 5); on = checkbox
-  gradient + white check; off = 1.5 pt white-0.30 border.
+- `GlassCheckbox(state:action:)` — 16 pt rounded-square (radius 5), tri-state
+  `CheckState`: `.on` = checkbox gradient + white check; `.mixed` (partial
+  selection) = checkbox gradient + white minus glyph; `.off` = 1.5 pt
+  white-0.30 border. `GlassCheckbox(on:action:)` stays as the two-state
+  convenience for plain rows.
+- `SizeText(_ bytes:emphasized:)` — the one trailing "data number" style:
+  13.5 pt semibold white-0.82, monospaced digits; `emphasized` lifts the
+  largest row to pure white.
+- `RelativeSizeBar(value:max:gradient:height:)` — 3 pt capsule under a row
+  name/sub-line showing size relative to the biggest visible row. Real bytes
+  only; renders nothing when `max <= 0`, floors at 2 pt when `value > 0`.
+- `SizePending(width:)` — 52×12 white-0.08 capsule with a slow opacity pulse,
+  the placeholder for a size still being computed. A pending size is ALWAYS
+  a shimmer — never a fake "0 B"/"Zero KB".
 - `TopBar(title:) { trailing }` — 56 pt row: 19 pt bold title, spacer, pills.
 - `BottomBar { content }` — 70 pt, fill #140E28 at 0.5, top hairline.
 - `StatCard(label:value:detail:)` — glass stat tile (idle dashboard row).
@@ -56,13 +68,26 @@ progress bar / GhostButton("Stop") when cancellable, else nothing.
 **List / results** — TopBar + content in glass rows/cards + BottomBar with
 summary caption left ("4 of 5 categories · 3.5 GB selected") and
 GhostButton + GradientButton right. Row anatomy: GlassCheckbox / 32 pt icon
-tile / name 13.5 semibold + tiny 11 sub-line / trailing size 13 pt
-tabular-nums white-0.60. Focused row: border rgba(150,130,255,.55) + soft
-purple outer glow.
+tile / name 13.5 semibold + tiny 11 sub-line + optional `RelativeSizeBar`
+under the name / trailing size in `SizeText` (13.5 pt semibold white-0.82,
+monospaced digits; `emphasized` white on the largest row). Focused row:
+border rgba(150,130,255,.55) + soft purple outer glow.
 
 **Inspector split (Smart Scan results)** — left: category rows; right: 320 pt
 glass inspector panel for the focused category (title, description, item list
-with checkboxes). Mirrors ref-3d.
+with checkboxes). Mirrors ref-3d. Required left-column content above the
+category rows: the selection summary header (30 pt bold `selectedBytes` hero
+number + 12.5 pt sub-line, live as the user toggles) and, below the rows, the
+Space-breakdown card (stacked proportion bar, one `CategoryStyle`-gradient
+segment per group, plus a legend of real per-group totals).
+
+**Uninstaller** — two-phase discovery: app names + icons appear first
+(alphabetical, < 1 s), real bundle sizes stream in afterwards. A not-yet-sized
+row shows `SizePending` — never a fake number. A sort Menu (Name / Size) sits
+in the TopBar; the list never auto-resorts while sizes stream. The 70 pt
+BottomBar is required: real progress while sizing ("N apps · sizing X of Y…"),
+real totals when done. The inspector-split from ref-3e was evaluated and the
+inline leftover accordion is retained.
 
 **Done** — centered: 64 pt white checkmark symbol / 26 pt bold headline /
 muted summary / CTACircle("Scan Again").
@@ -75,6 +100,11 @@ muted summary / CTACircle("Scan Again").
   never accent-colored circles.
 - Status pills: good #7BE8A8/15%, warn #FFC37B/15%, blue #AEB8FF/18%,
   red #FF9DAE/16%.
+- Pill tone rule: `.blue` for every neutral count/size total; `.warn` reserved
+  for genuine cautions (partial scan, skipped items, running apps, safety
+  banners); `.good` for completed/safe states. `.red` is used ONLY for the
+  Privacy results trace total — clearing traces is inherently a caution
+  (sign-outs, lost tabs), so that one total is intentionally not neutral.
 - Legacy (delete once unused): `ModuleTheme`, `ModuleBackground`, `HeroBlob`,
   `CircleActionButton`, `GlassPill`, `Palette.warn/muted/faint/glassGradient`.
 
@@ -85,9 +115,10 @@ traffic lights. Items: 14 pt gradient dot + 12.5 pt label; selected = white
 0.13 rounded-8 fill. Order: Smart Scan (dot #6FD3FF→#8F5BFF) · CLEANUP header
 · Large & Old Files (#5BE0C8→#1FA88F) · PROTECTION · Privacy (#FF8FD0→#C04AE0)
 · APPLICATIONS · Uninstaller (#FFC37B→#FF7A4D). Section headers 9.5 pt bold
-white-0.32 tracking 1.3 uppercase. Footer: real disk usage — "Macintosh HD",
-5 pt gradient bar (#6FD3FF→#B06CFF), "X GB used of Y GB" from
-`URLResourceValues` volume capacities.
+white-0.32 tracking 1.3 uppercase. Footer: real disk usage — "Macintosh HD"
+11 pt semibold white-0.78, 5 pt gradient bar (#6FD3FF→#B06CFF), caption
+"X GB used of Y GB" 11 pt white-0.55 (sub tier — legible against the aurora)
+from `URLResourceValues` volume capacities.
 
 ## Safety copy is inviolable
 

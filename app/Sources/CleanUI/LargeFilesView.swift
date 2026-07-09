@@ -124,6 +124,7 @@ struct LargeFilesView: View {
     private var resultsView: some View {
         VStack(spacing: 0) {
             TopBar(title: "Large & Old Files") {
+                rescanPill
                 StatusPill(text: "\(model.visibleFiles.count) files · \(ByteFormat.human(model.visibleBytes))",
                            tone: .blue)
             }
@@ -154,10 +155,11 @@ struct LargeFilesView: View {
         return base + " plus \(extras) folder\(extras == 1 ? "" : "s") you added."
     }
 
-    /// Two scrollable control rows: primary filters on top; search, view and
-    /// location tools below. Split so nothing clips at the 920 pt minimum width.
+    /// One glass toolbar with two scrollable control rows: primary filters on
+    /// top; search, view and location tools below. Split so nothing clips at
+    /// the 920 pt minimum width.
     private var filterBar: some View {
-        VStack(spacing: 8) {
+        VStack(alignment: .leading, spacing: 8) {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 10) {
                     SegmentedPicker(selection: $model.sizeFilter,
@@ -167,7 +169,6 @@ struct LargeFilesView: View {
                                     options: LargeFilesViewModel.AgeFilter.allCases,
                                     label: \.label)
                 }
-                .padding(.horizontal, 26)
             }
 
             ScrollView(.horizontal, showsIndicators: false) {
@@ -178,11 +179,12 @@ struct LargeFilesView: View {
                     groupingMenu
                     locationsMenu
                     if model.ignoredCount > 0 { ignoredPill }
-                    rescanPill
                 }
-                .padding(.horizontal, 26)
             }
         }
+        .padding(12)
+        .glassCard(radius: 14)
+        .padding(.horizontal, 26)
         .padding(.bottom, 10)
     }
 
@@ -347,19 +349,22 @@ struct LargeFilesView: View {
             .strokeBorder(Palette.glassBorder, lineWidth: 1))
     }
 
+    /// Slim one-line warn strip. The wording is safety copy — verbatim,
+    /// never edited; only the container is styled.
     private var safetyBanner: some View {
-        HStack(spacing: 9) {
+        HStack(spacing: 8) {
             Image(systemName: "exclamationmark.shield.fill")
-                .font(.system(size: 12))
+                .font(.system(size: 11))
                 .foregroundStyle(PillTone.warn.text)
             Text("These are your personal files. Nothing is selected for you — review each one. Removed files go to the Trash and can be restored.")
                 .font(.caption)
                 .foregroundStyle(Palette.ink2.opacity(0.9))
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
             Spacer(minLength: 0)
         }
-        .padding(.horizontal, 12).padding(.vertical, 8)
-        .background(RoundedRectangle(cornerRadius: 10, style: .continuous).fill(PillTone.warn.fill))
-        .glassCard(radius: 10)
+        .padding(.horizontal, 12).padding(.vertical, 6)
+        .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(PillTone.warn.fill))
         .padding(.horizontal, 26)
         .padding(.bottom, 10)
     }
@@ -410,11 +415,18 @@ struct LargeFilesView: View {
         ForEach(files) { file in
             LargeFileRow(file: file,
                          selected: model.isSelected(file.id),
+                         maxBytes: maxVisibleBytes,
                          now: Date(),
                          onToggle: { model.toggle(file.id) },
                          onPreview: { previewURL = file.url },
                          onIgnore: { model.ignore(file) })
         }
+    }
+
+    /// Biggest visible file, the shared denominator for every row's size bar.
+    /// View-local on purpose — the view model stays untouched.
+    private var maxVisibleBytes: Int64 {
+        model.visibleFiles.map(\.sizeBytes).max() ?? 0
     }
 
     private var selectAllRow: some View {
@@ -438,13 +450,18 @@ struct LargeFilesView: View {
 
     private var bottomBar: some View {
         BottomBar {
-            Text("\(model.selectedCount) files · \(ByteFormat.human(model.selectedBytes)) selected")
+            // Empty selection is honest empty-state copy — never "Zero KB".
+            Text(model.selectedBytes == 0
+                ? "Nothing selected yet — review and pick files above."
+                : "\(model.selectedCount) files · \(ByteFormat.human(model.selectedBytes)) selected")
                 .font(.system(size: 12.5))
                 .foregroundStyle(Palette.sub)
 
             Spacer()
 
-            GradientButton(title: "Clean \(ByteFormat.human(model.selectedBytes))",
+            GradientButton(title: model.selectedBytes == 0
+                               ? "Clean"
+                               : "Clean \(ByteFormat.human(model.selectedBytes))",
                            disabled: model.selectedCount == 0) { showConfirm = true }
         }
         .confirmationDialog(
@@ -516,6 +533,8 @@ private struct SegmentedPicker<Option: Identifiable & Equatable>: View {
 private struct LargeFileRow: View {
     let file: LargeFile
     let selected: Bool
+    /// Biggest visible file — denominator for the relative size bar.
+    let maxBytes: Int64
     let now: Date
     let onToggle: () -> Void
     let onPreview: () -> Void
@@ -548,15 +567,14 @@ private struct LargeFileRow: View {
                     .foregroundStyle(Palette.tiny)
                     .lineLimit(1)
                     .truncationMode(.middle)
+                RelativeSizeBar(value: file.sizeBytes, max: maxBytes)
+                    .padding(.top, 3)
             }
 
             Spacer()
 
             VStack(alignment: .trailing, spacing: 2) {
-                Text(ByteFormat.human(file.sizeBytes))
-                    .font(.system(size: 13))
-                    .monospacedDigit()
-                    .foregroundStyle(Palette.sub)
+                SizeText(file.sizeBytes)
                 if let usage = usageCaption {
                     Text(usage)
                         .font(.system(size: 9))

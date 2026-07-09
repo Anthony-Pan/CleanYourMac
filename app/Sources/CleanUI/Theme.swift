@@ -95,6 +95,12 @@ enum Palette {
     static let barFill = Color(hex: 0x140E28, alpha: 0.5)
 }
 
+// MARK: - Checkbox states
+
+/// Tri-state selection for `GlassCheckbox`: `.mixed` marks a container whose
+/// children are only partially selected (rendered as a minus glyph).
+enum CheckState { case off, mixed, on }
+
 // MARK: - Status pill tones
 
 enum PillTone {
