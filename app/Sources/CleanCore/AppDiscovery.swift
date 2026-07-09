@@ -14,9 +14,63 @@ public struct AppDiscovery {
     /// allow us to remove, sorted largest-first. Apple/system apps are included
     /// but flagged `isSystem` (the UI must refuse them).
     public func installedApps() -> [InstalledApp] {
+        appBundleURLs()
+            .compactMap { readApp(at: $0, sized: true) }
+            .sorted { $0.sizeBytes > $1.sizeBytes }
+    }
+
+    /// Phase 1 — metadata only: directory listing plus Info.plist reads, with
+    /// NO size walk, so it returns in well under a second even with hundreds
+    /// of apps. `sizeBytes` is `0` as a not-yet-sized sentinel; callers must
+    /// treat it as "pending" and never render it — real sizes arrive through
+    /// `sizeStream(for:)`. Sorted by name so the list order is stable while
+    /// sizes stream in.
+    public func discoverAppsFast() -> [InstalledApp] {
+        appBundleURLs()
+            .compactMap { readApp(at: $0, sized: false) }
+            .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+    }
+
+    /// Phase 2 — stream real bundle sizes for `apps` in the given order.
+    /// Concurrency is bounded so one huge bundle (an Xcode walk) can't starve
+    /// the pool. Yields `(id, bytes)` as each walk finishes; when the consumer
+    /// terminates the stream, no new walks are dispatched.
+    public func sizeStream(for apps: [InstalledApp]) -> AsyncStream<(id: String, bytes: Int64)> {
+        AsyncStream { continuation in
+            let producer = Task.detached(priority: .utility) {
+                // TODO(perf): thread shouldContinue into Scanner.allocatedSize
+                // so an in-flight walk can stop early too; today cancellation
+                // only stops new walks (at most `width` in flight finish late
+                // and their results are discarded by the closed stream).
+                await withTaskGroup(of: (String, Int64).self) { group in
+                    let width = min(4, ProcessInfo.processInfo.activeProcessorCount)
+                    var pending = apps.makeIterator()
+
+                    func walkNext() -> Bool {
+                        guard let app = pending.next() else { return false }
+                        group.addTask { (app.id, Scanner.allocatedSize(of: app.url)) }
+                        return true
+                    }
+
+                    var inFlight = 0
+                    while inFlight < width, walkNext() { inFlight += 1 }
+                    while let result = await group.next() {
+                        continuation.yield(result)
+                        if !Task.isCancelled { _ = walkNext() }
+                    }
+                }
+                continuation.finish()
+            }
+            continuation.onTermination = { _ in producer.cancel() }
+        }
+    }
+
+    /// The deduplicated, safety-gated `.app` bundles across all configured
+    /// roots — the shared listing behind both discovery passes.
+    private func appBundleURLs() -> [URL] {
         let fm = FileManager.default
         var seen = Set<String>()
-        var apps: [InstalledApp] = []
+        var bundles: [URL] = []
 
         for root in policy.appRoots {
             let children = (try? fm.contentsOfDirectory(
@@ -30,16 +84,22 @@ public struct AppDiscovery {
                 guard seen.insert(child.canonicalized.path).inserted else { continue }
                 // SAFETY GATE: only surface bundles we could actually remove.
                 guard policy.validateBundle(child) == nil else { continue }
-                if let app = readApp(at: child) { apps.append(app) }
+                bundles.append(child)
             }
         }
 
-        return apps.sorted { $0.sizeBytes > $1.sizeBytes }
+        return bundles
     }
 
     /// Parse a single `.app` bundle into an `InstalledApp`. Returns `nil` if the
     /// path is not a real application bundle directory.
     public func readApp(at url: URL) -> InstalledApp? {
+        readApp(at: url, sized: true)
+    }
+
+    /// `sized: false` skips the recursive size walk (fast metadata pass) and
+    /// leaves `sizeBytes` at the 0 pending sentinel.
+    private func readApp(at url: URL, sized: Bool) -> InstalledApp? {
         let fm = FileManager.default
         var isDir: ObjCBool = false
         guard fm.fileExists(atPath: url.path, isDirectory: &isDir), isDir.boolValue else { return nil }
@@ -60,7 +120,7 @@ public struct AppDiscovery {
             name: name,
             bundleID: bundleID,
             version: version,
-            sizeBytes: Scanner.allocatedSize(of: url),
+            sizeBytes: sized ? Scanner.allocatedSize(of: url) : 0,
             isSystem: Self.isSystemApp(bundleID: bundleID, url: url)
         )
     }

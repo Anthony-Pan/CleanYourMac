@@ -141,6 +141,61 @@ final class AppUninstallerTests: XCTestCase {
             bundleID: "com.apple.dt.Xcode", url: URL(fileURLWithPath: "/Applications/Xcode.app")))
     }
 
+    // MARK: - Two-phase discovery (fast metadata pass + streamed sizes)
+
+    func test_discoverAppsFast_returnsZeroSize_sortedByName() throws {
+        try makeApp(fileName: "Zeta.app", bundleID: "com.z.Zeta", name: "Zeta")
+        try makeApp(fileName: "Alpha.app", bundleID: "com.a.Alpha", name: "Alpha")
+
+        let fast = AppDiscovery(policy: policy()).discoverAppsFast()
+
+        XCTAssertEqual(fast.map(\.name), ["Alpha", "Zeta"], "fast discovery sorts by name")
+        for app in fast {
+            XCTAssertEqual(app.sizeBytes, 0,
+                           "fast discovery must not size bundles — 0 is the pending sentinel")
+        }
+    }
+
+    func test_discoverAppsFast_skipsBundleWalk_unlikeInstalledApps() throws {
+        // A bundle padded with many payload files: the full discovery pass
+        // walks and sums them, the fast metadata pass must not.
+        let bundle = try makeApp(fileName: "Big.app", bundleID: "com.big.App", name: "Big")
+        let payload = bundle.appendingPathComponent("Contents/Resources")
+        try fm.createDirectory(at: payload, withIntermediateDirectories: true)
+        for i in 0..<50 {
+            XCTAssertTrue(fm.createFile(atPath: payload.appendingPathComponent("r\(i)").path,
+                                        contents: Data(repeating: 0x44, count: 2_048)))
+        }
+
+        let discovery = AppDiscovery(policy: policy())
+        let walked = try XCTUnwrap(discovery.installedApps().first { $0.name == "Big" })
+        let fast = try XCTUnwrap(discovery.discoverAppsFast().first { $0.name == "Big" })
+
+        XCTAssertGreaterThan(walked.sizeBytes, 100_000, "the full walk sees the payload files")
+        XCTAssertEqual(fast.sizeBytes, 0, "the metadata pass never walks bundle contents")
+    }
+
+    func test_sizeStream_yieldsRealSizesForAllApps() async throws {
+        try makeApp(fileName: "One.app", bundleID: "com.one.App", name: "One")
+        try makeApp(fileName: "Two.app", bundleID: "com.two.App", name: "Two")
+        try makeApp(fileName: "Three.app", bundleID: "com.three.App", name: "Three")
+
+        let discovery = AppDiscovery(policy: policy())
+        let apps = discovery.discoverAppsFast()
+        XCTAssertEqual(apps.count, 3)
+
+        var sizes: [String: Int64] = [:]
+        for await (id, bytes) in discovery.sizeStream(for: apps) {
+            XCTAssertNil(sizes[id], "every app id must be yielded exactly once")
+            sizes[id] = bytes
+        }
+
+        XCTAssertEqual(Set(sizes.keys), Set(apps.map(\.id)))
+        for (id, bytes) in sizes {
+            XCTAssertGreaterThan(bytes, 0, "a real on-disk size is expected for \(id)")
+        }
+    }
+
     // MARK: - Leftover attribution
 
     func test_planMatchesBundleIDLeftoversAndBundleItself() throws {

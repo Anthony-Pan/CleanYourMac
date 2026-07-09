@@ -3,18 +3,32 @@ import Observation
 import AppKit
 import CleanCore
 
-/// Drives the Uninstaller screen. Apps are discovered up front; a per-app
-/// removal plan (bundle + attributed leftovers) is built lazily the first time
-/// a row is expanded. Selection is tracked per leftover so the user reviews and
-/// excludes individual files before anything is moved to the Trash.
+/// Drives the Uninstaller screen. Discovery is two-phase so the list appears
+/// near-instantly: a metadata pass lists every app first, then real bundle
+/// sizes stream in with bounded concurrency. Real sizes live in the `sizes`
+/// dictionary — `InstalledApp.sizeBytes` from the fast pass is a 0 sentinel
+/// the view must never render. A per-app removal plan (bundle + attributed
+/// leftovers) is built lazily the first time a row is expanded. Selection is
+/// tracked per leftover so the user reviews and excludes individual files
+/// before anything is moved to the Trash.
 @MainActor
 @Observable
 final class UninstallViewModel {
     enum Phase: Equatable { case idle, scanning, ready }
+    enum SortOrder { case name, size }
 
     private(set) var phase: Phase = .idle
     private(set) var apps: [InstalledApp] = []
     var query: String = ""
+
+    /// Real bytes per app id, filled in as the size stream yields. A missing
+    /// key means "still calculating" — the view renders a shimmer, never 0 B.
+    private(set) var sizes: [String: Int64] = [:]
+    /// How many apps have a real size so far (drives the "Sizing i of n" copy).
+    private(set) var sizedCount = 0
+    /// List order. Only the user changes it — sizes landing never auto-resort.
+    var sortOrder: SortOrder = .name
+    private var sizingTask: Task<Void, Never>?
 
     /// The single app whose leftovers are currently expanded, if any.
     private(set) var expandedAppID: String?
@@ -39,27 +53,56 @@ final class UninstallViewModel {
         selfBundleID = Bundle.main.bundleIdentifier
     }
 
-    /// Preloaded state for design previews (no disk access).
+    /// Preloaded state for design previews (no disk access). Mock apps carry
+    /// real sizes on the model; mirror them into the streaming dictionary so
+    /// previews render fully sized (no shimmer).
     init(mockApps: [InstalledApp], runningBundleIDs: Set<String> = []) {
         self.runningBundleIDs = runningBundleIDs
         selfBundleID = nil
         apps = mockApps
+        sizes = Dictionary(uniqueKeysWithValues: mockApps.map { ($0.id, $0.sizeBytes) })
+        sizedCount = mockApps.count
         phase = .ready
     }
 
     // MARK: - Derived
 
-    /// Apps matching the search box, with already-removed ones dropped.
+    /// Apps matching the search box, already-removed ones dropped, in the
+    /// user-chosen order. Name order is stable while sizes stream in; size
+    /// order sinks not-yet-sized apps to the bottom with a name tiebreak.
     var visibleApps: [InstalledApp] {
         let q = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        return apps.filter { app in
+        let filtered = apps.filter { app in
             guard !removedAppIDs.contains(app.id) else { return false }
             guard !q.isEmpty else { return true }
             return app.name.lowercased().contains(q) || (app.bundleID?.lowercased().contains(q) ?? false)
         }
+        switch sortOrder {
+        case .name:
+            return filtered.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+        case .size:
+            return filtered.sorted { a, b in
+                let (sa, sb) = (sizes[a.id] ?? -1, sizes[b.id] ?? -1)
+                guard sa == sb else { return sa > sb }
+                return a.name.localizedStandardCompare(b.name) == .orderedAscending
+            }
+        }
     }
 
-    var totalBundleBytes: Int64 { visibleApps.reduce(0) { $0 + $1.sizeBytes } }
+    /// Sum of the *known* sizes of visible apps. Pending apps contribute
+    /// nothing — the bottom-bar copy says "sizing i of n" until every size is
+    /// real, so a partial sum is never presented as the total.
+    var totalBundleBytes: Int64 { visibleApps.reduce(0) { $0 + (sizes[$1.id] ?? 0) } }
+
+    /// The largest known size, for the relative size bar on each row.
+    var maxKnownVisibleBytes: Int64 { sizes.values.max() ?? 0 }
+
+    /// The app's real on-disk size, or `nil` while it is still being computed
+    /// (render a shimmer, never a number).
+    func size(for app: InstalledApp) -> Int64? { sizes[app.id] }
+
+    /// True while the list is visible but sizes are still streaming in.
+    var isSizing: Bool { phase == .ready && sizedCount < apps.count }
 
     func isSelf(_ app: InstalledApp) -> Bool {
         guard let id = app.bundleID, let me = selfBundleID else { return false }
@@ -146,11 +189,43 @@ final class UninstallViewModel {
 
     // MARK: - Scan / uninstall
 
+    /// Two-phase discovery: list names and icons first (fast metadata pass),
+    /// then stream real bundle sizes in the background.
     func scan() async {
+        sizingTask?.cancel()
         phase = .scanning
         let engine = discovery
-        apps = await Task.detached(priority: .userInitiated) { engine.installedApps() }.value
-        phase = .ready
+        let discovered = await Task.detached(priority: .userInitiated) { engine.discoverAppsFast() }.value
+        apps = discovered
+        sizes = [:]
+        sizedCount = 0
+        phase = .ready   // the list is visible from here; sizes stream in below
+        startSizing(discovered)
+    }
+
+    /// Restart the stream for apps still missing a size — e.g. when the screen
+    /// reappears after `cancelSizing()` stopped a half-finished pass.
+    func resumeSizingIfNeeded() {
+        guard phase == .ready else { return }
+        let pending = apps.filter { sizes[$0.id] == nil }
+        guard !pending.isEmpty else { return }
+        sizingTask?.cancel()
+        startSizing(pending)
+    }
+
+    /// Stop dispatching size walks (at most a handful in flight finish and
+    /// their results are discarded). Called when the screen disappears.
+    func cancelSizing() { sizingTask?.cancel() }
+
+    private func startSizing(_ apps: [InstalledApp]) {
+        let engine = discovery
+        sizingTask = Task { [weak self] in
+            for await (id, bytes) in engine.sizeStream(for: apps) {
+                guard let self, !Task.isCancelled else { break }
+                self.sizes[id] = bytes
+                self.sizedCount += 1
+            }
+        }
     }
 
     func uninstall(_ app: InstalledApp) async {

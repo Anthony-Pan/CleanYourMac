@@ -6,6 +6,7 @@ import CleanCore
 /// plus its attributed leftover files, and move the selected items to the Trash.
 struct UninstallerView: View {
     @Bindable var model: UninstallViewModel
+    @State private var pulse = false
 
     init(model: UninstallViewModel) { self.model = model }
 
@@ -13,6 +14,7 @@ struct UninstallerView: View {
         VStack(spacing: 0) {
             TopBar(title: "Uninstaller") {
                 searchField
+                sortMenu
                 statusPill
             }
 
@@ -23,19 +25,54 @@ struct UninstallerView: View {
                 subtitleLine
                 appList
             }
+
+            bottomBar
         }
         .navigationTitle("Uninstaller")
-        .task { if model.phase == .idle { await model.scan() } }
+        .task {
+            if model.phase == .idle { await model.scan() }
+            else { model.resumeSizingIfNeeded() }
+        }
+        .onDisappear { model.cancelSizing() }
     }
 
     // MARK: - Top bar pieces
 
     @ViewBuilder private var statusPill: some View {
-        if model.phase == .ready {
-            StatusPill(text: "\(model.visibleApps.count) apps", tone: .blue)
-        } else {
+        if model.phase != .ready {
             StatusPill(text: "Scanning…", tone: .blue)
+        } else if model.isSizing {
+            StatusPill(text: "Sizing \(model.sizedCount) of \(model.apps.count)", tone: .blue)
+        } else {
+            StatusPill(text: "\(model.visibleApps.count) apps", tone: .blue)
         }
+    }
+
+    /// Sort control. Name is the stable streaming order; Size reorders on the
+    /// user's action only and warns while sizes are still calculating.
+    private var sortMenu: some View {
+        Menu {
+            Picker("Sort", selection: $model.sortOrder) {
+                Text("Name").tag(UninstallViewModel.SortOrder.name)
+                Text(model.isSizing ? "Size (still calculating)" : "Size")
+                    .tag(UninstallViewModel.SortOrder.size)
+            }
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "arrow.up.arrow.down").font(.system(size: 11))
+                Text(model.sortOrder == .name ? "Name" : "Size")
+                    .font(.system(size: 12.5, weight: .medium))
+                Image(systemName: "chevron.down").font(.system(size: 9, weight: .semibold))
+            }
+            .foregroundStyle(.white)
+            .padding(.horizontal, 12).padding(.vertical, 6)
+            .background(RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .fill(.white.opacity(0.10)))
+            .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .strokeBorder(Palette.glassBorder, lineWidth: 1))
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
     }
 
     private var subtitleLine: some View {
@@ -76,16 +113,21 @@ struct UninstallerView: View {
 
     // MARK: - Lists
 
+    /// Placeholder rows while the metadata pass runs: sized to the viewport
+    /// and pulsing softly so the wait reads as activity, not a stall.
     private var loadingList: some View {
-        VStack(spacing: 8) {
-            ForEach(0..<5, id: \.self) { _ in
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(.white.opacity(0.05))
-                    .frame(height: 62)
-                    .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .strokeBorder(Palette.glassBorder, lineWidth: 1))
+        GeometryReader { geo in
+            VStack(spacing: 8) {
+                ForEach(0..<max(5, Int(geo.size.height / 70)), id: \.self) { _ in
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .fill(.white.opacity(pulse ? 0.09 : 0.05))
+                        .frame(height: 62)
+                        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .strokeBorder(Palette.glassBorder, lineWidth: 1))
+                }
             }
-            Spacer()
+            .animation(.easeInOut(duration: 1.1).repeatForever(autoreverses: true), value: pulse)
+            .onAppear { pulse = true }
         }
         .padding(.horizontal, 26)
         .padding(.top, 4)
@@ -104,6 +146,29 @@ struct UninstallerView: View {
             .padding(.horizontal, 26)
             .padding(.bottom, 24)
         }
+    }
+
+    // MARK: - Bottom bar
+
+    /// The DESIGN.md-mandated 70 pt bottom bar. The caption is real model
+    /// state only: live sizing progress while streaming, and the real on-disk
+    /// total once every app is sized — never a partial sum shown as a total.
+    private var bottomBar: some View {
+        BottomBar {
+            Text(bottomCaption)
+                .font(.system(size: 12.5))
+                .foregroundStyle(Palette.sub)
+                .monospacedDigit()
+            Spacer()
+        }
+    }
+
+    private var bottomCaption: String {
+        guard model.phase == .ready else { return "Scanning applications…" }
+        if model.isSizing {
+            return "\(model.visibleApps.count) apps · sizing \(model.sizedCount) of \(model.apps.count)…"
+        }
+        return "\(model.visibleApps.count) apps · \(ByteFormat.human(model.totalBundleBytes)) on disk"
     }
 
     private var emptyState: some View {
@@ -160,9 +225,7 @@ private struct AppUninstallRow: View {
 
                 Spacer(minLength: 8)
 
-                Text(ByteFormat.human(app.sizeBytes))
-                    .font(.system(size: 13)).monospacedDigit()
-                    .foregroundStyle(Palette.sub)
+                sizeColumn
 
                 Image(systemName: "chevron.right")
                     .font(.system(size: 13, weight: .semibold))
@@ -175,9 +238,26 @@ private struct AppUninstallRow: View {
         .buttonStyle(.plain)
     }
 
+    /// Fixed-width trailing size column: real size plus a relative bar once
+    /// known, a shimmer while pending — never a fake "0 B". The fixed frame
+    /// keeps the chevron from jumping as sizes stream in.
+    private var sizeColumn: some View {
+        Group {
+            if let bytes = model.size(for: app) {
+                VStack(alignment: .trailing, spacing: 3) {
+                    SizeText(bytes)
+                    RelativeSizeBar(value: bytes, max: model.maxKnownVisibleBytes)
+                }
+            } else {
+                SizePending()
+            }
+        }
+        .frame(width: 84, alignment: .trailing)
+        .animation(.snappy, value: model.size(for: app))
+    }
+
     private var subtitle: String {
-        let version = app.version.map { "v\($0)" }
-        return [version, app.bundleID].compactMap { $0 }.joined(separator: "  ·  ")
+        app.version.map { "Version \($0)" } ?? ""
     }
 
     @ViewBuilder private var statusBadge: some View {
@@ -196,6 +276,7 @@ private struct AppUninstallRow: View {
         if app.isSystem || model.isSelf(app) {
             protectedNotice
         } else {
+            identityLine
             if model.hasProblems(app), let report = model.report(for: app) {
                 problemNotice(report)
             }
@@ -212,6 +293,19 @@ private struct AppUninstallRow: View {
                 footer(plan)
             }
         }
+    }
+
+    /// Bundle id + full path, moved out of the collapsed row so the list stays
+    /// scannable; shown once the row is expanded.
+    private var identityLine: some View {
+        Text([app.bundleID, app.url.path].compactMap { $0 }.joined(separator: "  ·  "))
+            .font(.system(size: 11))
+            .foregroundStyle(Palette.tiny)
+            .lineLimit(1)
+            .truncationMode(.middle)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 14)
+            .padding(.top, 10)
     }
 
     private func problemNotice(_ report: CleanReport) -> some View {
@@ -361,24 +455,38 @@ private struct LeftoverRow: View {
 
 // MARK: - Small pieces
 
-/// The real Finder icon for an app bundle, cached by path so scrolling and
-/// search keystrokes don't re-hit `NSWorkspace` for rows that haven't changed.
+/// The real Finder icon for an app bundle, loaded off the main thread and
+/// cached by path so scrolling and search keystrokes never block on
+/// `NSWorkspace`. A soft placeholder holds the slot until the icon lands.
 private struct AppIcon: View {
     let url: URL
+    @State private var icon: NSImage?
+
     var body: some View {
-        Image(nsImage: IconCache.icon(for: url.path))
-            .resizable()
-            .interpolation(.high)
-            .aspectRatio(contentMode: .fit)
+        ZStack {
+            if let icon {
+                Image(nsImage: icon)
+                    .resizable()
+                    .interpolation(.high)
+                    .aspectRatio(contentMode: .fit)
+            } else {
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .fill(.white.opacity(0.08))
+            }
+        }
+        .task(id: url.path) {
+            let path = url.path
+            if let cached = IconCache.cached(path) { icon = cached; return }
+            let img = await Task.detached { NSWorkspace.shared.icon(forFile: path) }.value
+            img.size = NSSize(width: 64, height: 64)
+            IconCache.store(img, path)
+            icon = img
+        }
     }
 }
 
 private enum IconCache {
     private static let cache = NSCache<NSString, NSImage>()
-    static func icon(for path: String) -> NSImage {
-        if let cached = cache.object(forKey: path as NSString) { return cached }
-        let image = NSWorkspace.shared.icon(forFile: path)
-        cache.setObject(image, forKey: path as NSString)
-        return image
-    }
+    static func cached(_ path: String) -> NSImage? { cache.object(forKey: path as NSString) }
+    static func store(_ image: NSImage, _ path: String) { cache.setObject(image, forKey: path as NSString) }
 }
