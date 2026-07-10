@@ -157,9 +157,10 @@ final class PrivacyScannerTests: XCTestCase {
         for item in chrome.items {
             switch item.kind {
             case .caches, .history, .downloads,
-                 .recentDocuments, .recentApplications, .recentServers, .appRecents:
+                 .recentDocuments, .recentApplications, .recentServers, .appRecents,
+                 .thumbnails, .downloadRecords, .crashReports:
                 XCTAssertTrue(item.defaultOn, "\(item.kind) should be pre-selected")
-            case .cookies, .sessions, .siteData:
+            case .cookies, .sessions, .siteData, .windowState, .shellHistory:
                 XCTAssertFalse(item.defaultOn, "\(item.kind) is disruptive → opt-in")
             }
         }
@@ -478,6 +479,26 @@ final class PrivacyScannerTests: XCTestCase {
             disposer.disposed.contains(loginData),
             "Login Data must never be passed to the disposer"
         )
+    }
+
+    func test_denylistStackedSidecarSuffixBlockedInClear() throws {
+        // A crafted stacked-suffix name (`Login Data-wal-shm`) must normalise all
+        // the way down to `login data` and be blocked — the strip loops, so one
+        // sidecar suffix can't shield a protected basename behind another.
+        let profile = "Application Support/Google/Chrome/Default"
+        try makeFile("\(profile)/History")
+        let stacked = try makeFile("\(profile)/Login Data-wal-shm")
+
+        let bogus = PrivacyItem(app: .chrome, kind: .history, url: stacked, sizeBytes: 512)
+        let disposer = RecordingDisposer()
+        let report = scanner(disposer).clear([bogus], dryRun: false)
+
+        XCTAssertTrue(
+            report.blocked.contains { $0.reason == .protectedContent },
+            "Login Data-wal-shm must normalise to a protected name and be blocked"
+        )
+        XCTAssertTrue(fm.fileExists(atPath: stacked.path), "the stacked-suffix file must survive")
+        XCTAssertTrue(disposer.disposed.isEmpty)
     }
 
     func test_denylistWalVariantBlockedInClear() throws {

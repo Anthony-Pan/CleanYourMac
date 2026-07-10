@@ -35,6 +35,10 @@ final class PrivacyViewModel {
 
     private(set) var phase: Phase = .idle
     private(set) var groups: [PrivacyGroup] = []
+    /// Report-only audit findings (permissions, network exposure, settings,
+    /// hygiene), most severe first. Findings carry no file URL, so they can
+    /// never be selected or routed into the cleaner.
+    private(set) var findings: [PrivacyFinding] = []
     /// Selected item ids (paths).
     private(set) var selected: Set<String> = []
     private(set) var lastReport: CleanReport?
@@ -42,7 +46,7 @@ final class PrivacyViewModel {
     /// Full Disk Access has not been granted. Cleared at the start of each scan.
     private(set) var fdaMissing = false
 
-    private let scanner = PrivacyScanner()
+    private let scanner = PrivacyScanner.production()
     /// Snapshot of which browsers are running. Refreshed on every scan (not just
     /// at init) so the "quit the browser first" warning reflects reality when
     /// the user actually presses Scan.
@@ -53,9 +57,10 @@ final class PrivacyViewModel {
     }
 
     /// Preloaded state for design previews (no disk access).
-    init(mockGroups: [PrivacyGroup]) {
+    init(mockGroups: [PrivacyGroup], mockFindings: [PrivacyFinding] = []) {
         runningBundleIDs = []
         groups = mockGroups
+        findings = mockFindings
         selected = Set(mockGroups.flatMap { $0.items.filter(\.defaultOn).map(\.id) })
         phase = .results
     }
@@ -89,6 +94,27 @@ final class PrivacyViewModel {
     /// True if the current selection includes an open-tabs/session trace.
     var selectedLosesTabs: Bool {
         groups.flatMap(\.items).contains { selected.contains($0.id) && $0.kind == .sessions }
+    }
+
+    /// True if the current selection clears shell command history — irreversible
+    /// from the shell, so the final confirmation must call it out.
+    var selectedClearsShellHistory: Bool {
+        groups.flatMap(\.items).contains { selected.contains($0.id) && $0.kind == .shellHistory }
+    }
+
+    /// Display names of the quit-able apps (browsers / Electron apps) that own a
+    /// selected item, in encounter order without duplicates. Drives the final
+    /// "Quit … first" warning so it names the real selection instead of always
+    /// saying "your browsers" — system traces (owned by macOS) never appear.
+    var selectedQuitableAppNames: [String] {
+        var seen = Set<String>()
+        var names: [String] = []
+        for group in groups where group.app.isBrowserOrApp {
+            guard group.items.contains(where: { selected.contains($0.id) }) else { continue }
+            let name = group.app.displayName
+            if seen.insert(name).inserted { names.append(name) }
+        }
+        return names
     }
 
     // MARK: - Aggregated rows
@@ -177,19 +203,38 @@ final class PrivacyViewModel {
         }
     }
 
+    // MARK: - Audit findings
+
+    /// Open the System Settings pane a finding points at. Falls back to opening
+    /// System Settings itself when the finding has no deep link or the pane URL
+    /// can't be opened, so the button always does something visible.
+    func openSettings(_ finding: PrivacyFinding) {
+        let ws = NSWorkspace.shared
+        if let string = finding.settingsURLString,
+           let url = URL(string: string),
+           ws.open(url) {
+            return
+        }
+        if let root = URL(string: "x-apple.systempreferences:") { ws.open(root) }
+    }
+
     // MARK: - Scan / clean
 
     func scan() async {
         phase = .scanning
         selected = []
         lastReport = nil
+        findings = []
         fdaMissing = false
         // Re-read running apps now — the model outlives app launch, so a browser
         // opened since then must still trigger its "quit first" warning.
         runningBundleIDs = Set(NSWorkspace.shared.runningApplications.compactMap(\.bundleIdentifier))
         let engine = scanner
 
-        let (found, fdaBlocked) = await Task.detached(priority: .userInitiated) {
+        // Trace scan and privacy audit run concurrently off the main actor —
+        // the audit spawns short-lived processes and port probes, so it must
+        // never serialize behind the disk walk (or vice versa).
+        let scanTask = Task.detached(priority: .userInitiated) {
             let groups = engine.scan()
             // Detect missing Full Disk Access by probing ~/Library/Safari. Without
             // FDA, contentsOfDirectory throws even though the directory exists.
@@ -197,10 +242,26 @@ final class PrivacyViewModel {
             let fdaBlocked = (try? FileManager.default.contentsOfDirectory(
                 at: safari, includingPropertiesForKeys: nil)) == nil
             return (groups, fdaBlocked)
-        }.value
+        }
+        let auditTask = Task.detached(priority: .userInitiated) {
+            await PrivacyAuditor().audit()
+        }
+
+        let (found, fdaBlocked) = await scanTask.value
+        let audited = await auditTask.value
 
         groups = found
         fdaMissing = fdaBlocked
+        // The auditor already orders by severity; re-sort defensively (stable,
+        // so tie order is preserved) so the UI invariant — most severe first —
+        // never depends on a remote layer.
+        findings = audited.enumerated()
+            .sorted { a, b in
+                a.element.severity == b.element.severity
+                    ? a.offset < b.offset
+                    : a.element.severity > b.element.severity
+            }
+            .map(\.element)
         // Pre-select only the low-impact defaults.
         selected = Set(found.flatMap { $0.items.filter(\.defaultOn).map(\.id) })
         phase = .results

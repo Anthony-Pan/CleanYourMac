@@ -6,7 +6,7 @@ import CleanCore
 /// what `RootView` would show — the module stage, the sidebar rail, and the
 /// actual module view — so the render is the design, not a copy of it.
 public enum SnapshotScreen: String, CaseIterable {
-    case smartScanIdle, smartScanResults, uninstaller, largeFiles, privacyIdle
+    case smartScanIdle, smartScanResults, uninstaller, largeFiles, privacyIdle, privacyResults
 
     /// The full window (stage + rail + module view) at a fixed design size.
     @MainActor
@@ -29,7 +29,7 @@ public enum SnapshotScreen: String, CaseIterable {
         case .smartScanIdle, .smartScanResults: return .smartScan
         case .uninstaller:                      return .uninstaller
         case .largeFiles:                       return .largeFiles
-        case .privacyIdle:                      return .privacy
+        case .privacyIdle, .privacyResults:     return .privacy
         }
     }
 
@@ -48,6 +48,10 @@ public enum SnapshotScreen: String, CaseIterable {
             LargeFilesView(model: LargeFilesViewModel(mockFiles: Self.mockFiles()))
         case .privacyIdle:
             PrivacyView(model: PrivacyViewModel())
+        case .privacyResults:
+            PrivacyView(model: PrivacyViewModel(
+                mockGroups: Self.mockPrivacyGroups(),
+                mockFindings: Self.mockFindings()))
         }
     }
 
@@ -80,6 +84,69 @@ public enum SnapshotScreen: String, CaseIterable {
             group("app-logs", "Application Logs",
                   "Diagnostic logs written by apps.",
                   "diagnostics", 2_000_000, 48),
+        ]
+    }
+
+    private static func mockPrivacyGroups() -> [PrivacyGroup] {
+        func item(_ app: PrivacyApp, _ kind: PrivacyItemKind, _ path: String,
+                  _ size: Int64, context: String? = nil) -> PrivacyItem {
+            PrivacyItem(app: app, kind: kind,
+                        url: URL(fileURLWithPath: "/Users/you/Library/\(path)"),
+                        sizeBytes: size, context: context)
+        }
+        let slack = PrivacyApp.electron(name: "Slack", bundleID: "com.tinyspeck.slackmacgap")
+        return [
+            PrivacyGroup(app: .chrome, items: [
+                item(.chrome, .caches, "Caches/Google/Chrome", 512_000_000),
+                item(.chrome, .history, "Application Support/Google/Chrome/Default/History", 84_000_000),
+                item(.chrome, .cookies, "Application Support/Google/Chrome/Default/Network/Cookies", 12_000_000),
+                item(.chrome, .history, "Application Support/Google/Chrome/Profile 1/History",
+                     9_000_000, context: "Profile 1"),
+            ]),
+            PrivacyGroup(app: slack, items: [
+                item(slack, .caches, "Application Support/Slack/Cache", 310_000_000),
+                item(slack, .cookies, "Application Support/Slack/Cookies", 2_000_000),
+                item(slack, .siteData, "Application Support/Slack/Local Storage", 26_000_000),
+            ]),
+            PrivacyGroup(app: .quarantine, items: [
+                item(.quarantine, .downloadRecords,
+                     "Preferences/com.apple.LaunchServices.QuarantineEventsV2", 20_480),
+            ]),
+            PrivacyGroup(app: .shellHistory, items: [
+                item(.shellHistory, .shellHistory, "../.zsh_history", 112_000),
+            ]),
+        ]
+    }
+
+    private static func mockFindings() -> [PrivacyFinding] {
+        // Titles/details mirror the real auditor's phrasing so the snapshot
+        // shows the design under true copy lengths — never invented data shapes.
+        [
+            PrivacyFinding(
+                id: "firewall-off", severity: .warning, category: .systemSettings,
+                title: "Firewall is turned off",
+                detail: "The macOS application firewall is not blocking incoming connections.",
+                recommendation: "Turn on the firewall in System Settings.",
+                settingsURLString: "x-apple.systempreferences:com.apple.Firewall-Settings.extension"),
+            PrivacyFinding(
+                id: "tcc-screencapture", severity: .warning, category: .permissions,
+                title: "2 apps can record your screen",
+                detail: "com.example.meet, com.example.snap",
+                recommendation: "Review screen recording access in System Settings.",
+                settingsURLString: "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture",
+                apps: ["com.example.meet", "com.example.snap"]),
+            PrivacyFinding(
+                id: "airdrop-everyone", severity: .advisory, category: .networkExposure,
+                title: "AirDrop is discoverable by everyone",
+                detail: "Nearby strangers can see this Mac and send it files.",
+                recommendation: "Set AirDrop to Contacts Only when not in use.",
+                settingsURLString: nil),
+            PrivacyFinding(
+                id: "analytics-on", severity: .info, category: .systemSettings,
+                title: "Mac analytics sharing is on",
+                detail: "Diagnostics and usage data are shared with Apple.",
+                recommendation: "Review analytics sharing in System Settings.",
+                settingsURLString: "x-apple.systempreferences:com.apple.preference.security?Privacy_Analytics"),
         ]
     }
 

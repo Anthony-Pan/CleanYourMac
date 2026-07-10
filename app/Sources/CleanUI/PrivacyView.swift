@@ -2,10 +2,12 @@ import SwiftUI
 import AppKit
 import CleanCore
 
-/// The Privacy screen: find browser traces and macOS recent-item lists (caches,
-/// history, cookies, sessions, download lists, site data, recents) and move the
-/// selected ones to the Trash. Disruptive traces (cookies, site data, open tabs)
-/// are opt-in and clearly labelled.
+/// The Privacy screen: find traces left by browsers, Chromium-embedded apps and
+/// macOS (caches, history, cookies, sessions, download lists, site data,
+/// recents, system traces) and move the selected ones to the Trash. Disruptive
+/// traces (cookies, site data, open tabs) are opt-in and clearly labelled.
+/// Report-only audit findings appear above the trace cards and can never be
+/// selected or deleted.
 struct PrivacyView: View {
     let model: PrivacyViewModel
     @State private var showConfirm = false
@@ -51,7 +53,7 @@ struct PrivacyView: View {
                 .foregroundStyle(.white)
                 .padding(.top, 4)
 
-            Text("Clear caches, history, cookies and recent-item lists left behind by your browsers and macOS.")
+            Text("Clear caches, history, cookies and recent-item lists left behind by your browsers, apps and macOS.")
                 .font(.system(size: 12.5))
                 .foregroundStyle(Palette.sub)
                 .multilineTextAlignment(.center)
@@ -92,7 +94,7 @@ struct PrivacyView: View {
 
             Orb(size: 230, animating: true)
 
-            Text(model.phase == .cleaning ? "Clearing traces…" : "Scanning…")
+            Text(model.phase == .cleaning ? "Clearing traces…" : "Scanning browsers, apps and system traces…")
                 .font(.system(size: 26, weight: .bold))
                 .foregroundStyle(.white)
                 .padding(.top, 4)
@@ -127,12 +129,20 @@ struct PrivacyView: View {
                 .foregroundStyle(Palette.sub)
                 .padding(.top, 8)
 
-            if let report = model.lastReport, !report.failed.isEmpty || !report.blocked.isEmpty {
-                Text("\(report.failed.count + report.blocked.count) item(s) couldn't be cleared — quit the browser and try again.")
+            if let report = model.lastReport, !report.failed.isEmpty {
+                Text("\(report.failed.count) item(s) couldn't be cleared — quit the app that owns them and try again.")
                     .font(.system(size: 11))
                     .foregroundStyle(PillTone.warn.text)
                     .multilineTextAlignment(.center)
                     .padding(.top, 8)
+            }
+
+            if let report = model.lastReport, !report.blocked.isEmpty {
+                Text("\(report.blocked.count) item(s) were skipped by the safety check and left untouched.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(Palette.tiny)
+                    .multilineTextAlignment(.center)
+                    .padding(.top, 6)
             }
 
             CTACircle(title: "Scan Again") {
@@ -154,7 +164,7 @@ struct PrivacyView: View {
                            tone: .red)
             }
 
-            Text("Clear caches, history, cookies and recent-item lists left by your browsers and macOS. Sign-out and site-data traces are off by default.")
+            Text("Clear caches, history, cookies and recent-item lists left by your browsers, apps and macOS. Sign-out and site-data traces are off by default.")
                 .font(.system(size: 12.5))
                 .foregroundStyle(Palette.sub)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -166,11 +176,26 @@ struct PrivacyView: View {
             }
 
             if model.groups.isEmpty {
-                emptyState
+                ScrollView {
+                    VStack(spacing: 14) {
+                        findingsSection
+                        emptyState
+                    }
+                    .padding(.horizontal, 26)
+                    .padding(.bottom, 24)
+                }
             } else {
                 groupList
                 bottomAction
             }
+        }
+    }
+
+    /// Report-only audit findings ("POTENTIAL ISSUES") — shown above the trace
+    /// cards, or above the empty state when no traces were found.
+    private var findingsSection: some View {
+        PrivacyFindingsSection(findings: model.findings) { finding in
+            model.openSettings(finding)
         }
     }
 
@@ -179,10 +204,10 @@ struct PrivacyView: View {
             Image(systemName: "lock.shield.fill")
                 .foregroundStyle(PillTone.warn.text)
             VStack(alignment: .leading, spacing: 2) {
-                Text("Safari data needs Full Disk Access")
+                Text("Some data needs Full Disk Access")
                     .font(.system(size: 13.5, weight: .semibold))
                     .foregroundStyle(.white)
-                Text("Grant it in System Settings › Privacy & Security, then scan again.")
+                Text("Safari and QuickLook thumbnails stay hidden without it. Grant it in System Settings › Privacy & Security, then scan again.")
                     .font(.system(size: 11))
                     .foregroundStyle(Palette.tiny)
             }
@@ -208,6 +233,7 @@ struct PrivacyView: View {
     private var groupList: some View {
         ScrollView {
             LazyVStack(spacing: 12) {
+                findingsSection
                 ForEach(model.groups) { group in
                     PrivacyGroupCard(group: group, model: model)
                 }
@@ -245,25 +271,41 @@ struct PrivacyView: View {
     /// not just at the checkbox.
     private var confirmMessage: String {
         var parts = ["Nothing is deleted permanently — you can restore everything from the Trash."]
-        if model.selectedSignsOut { parts.append("Clearing cookies or site data may sign you out of websites.") }
+        if model.selectedSignsOut { parts.append("Clearing cookies or site data may sign you out of sites and apps.") }
         if model.selectedLosesTabs { parts.append("Clearing sessions will forget your open tabs.") }
-        parts.append("Quit your browsers first so their files aren't rewritten.")
+        if model.selectedClearsShellHistory {
+            parts.append("Clearing shell history can't be undone from the shell — close open terminal windows first.")
+        }
+        let names = model.selectedQuitableAppNames
+        if !names.isEmpty {
+            parts.append("Quit \(Self.list(names)) first so their files aren't rewritten.")
+        }
         return parts.joined(separator: " ")
+    }
+
+    /// Joins names into "A", "A and B", or "A, B and C" for the quit-first line.
+    private static func list(_ names: [String]) -> String {
+        switch names.count {
+        case 0:  return ""
+        case 1:  return names[0]
+        case 2:  return "\(names[0]) and \(names[1])"
+        default: return "\(names.dropLast().joined(separator: ", ")) and \(names.last!)"
+        }
     }
 
     private var emptyState: some View {
         VStack(spacing: 12) {
-            Spacer()
             Image(systemName: "hand.raised.fill")
                 .font(.system(size: 40)).foregroundStyle(Palette.tiny)
-            Text("No browser traces found.")
+                .padding(.top, 24)
+            Text("No traces found.")
                 .font(.system(size: 13.5, weight: .semibold))
                 .foregroundStyle(.white)
-            Text("Safari data requires Full Disk Access — grant it in System Settings › Privacy & Security, then scan again.")
+            Text("Some data (Safari, QuickLook thumbnails) requires Full Disk Access — grant it in System Settings › Privacy & Security, then scan again.")
                 .font(.system(size: 11)).foregroundStyle(Palette.tiny)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 380)
-            Spacer()
+                .padding(.bottom, 16)
         }
         .frame(maxWidth: .infinity)
         .padding(.bottom, 40)
@@ -398,8 +440,9 @@ private struct AggregatedPrivacyRow: View {
 // MARK: - Compact capsule button (card headers, notices)
 
 /// The small "Select all" / "Quit" / "Open Settings" button inside glass cards:
-/// 11 pt text on a white-0.10 capsule.
-private struct CompactCapsuleButton: View {
+/// 11 pt text on a white-0.10 capsule. Internal — the findings section
+/// (PrivacyFindingsSection.swift) reuses it for "Open Settings".
+struct CompactCapsuleButton: View {
     let title: String
     let action: () -> Void
 
@@ -447,7 +490,7 @@ private enum BrowserIcon {
     /// cached. `nil` when the browser can't be located (including `systemRecents`,
     /// which has no bundle IDs — the SF-Symbol fallback handles that).
     static func image(for app: PrivacyApp) -> NSImage? {
-        let key = app.rawValue as NSString
+        let key = app.key as NSString
         if let cached = cache.object(forKey: key) { return cached }
         let ws = NSWorkspace.shared
         let url = app.bundleIDs.lazy

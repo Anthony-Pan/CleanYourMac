@@ -52,6 +52,11 @@ public struct SafetyRejection: Error, Equatable, Sendable {
 public struct SafetyPolicy: Sendable {
     /// Canonical directories whose *contents* may be cleaned.
     public let allowedRoots: [URL]
+    /// Canonical URLs that may be removed *themselves* — exact matches only,
+    /// nothing beside or beneath them is implied. Even stricter than a root;
+    /// used for fixed single-location traces (the quarantine database, shell
+    /// history files, the QuickLook cache directory).
+    public let allowedExactTargets: [URL]
     /// Canonical directories that must never be deleted (or have an ancestor deleted).
     public let protectedPaths: [URL]
     /// Minimum number of path components required. Guards against shallow, catastrophic
@@ -60,10 +65,12 @@ public struct SafetyPolicy: Sendable {
 
     public init(
         allowedRoots: [URL],
+        allowedExactTargets: [URL] = [],
         protectedPaths: [URL] = SafetyPolicy.defaultProtectedPaths,
         minimumDepth: Int = 4
     ) {
         self.allowedRoots = allowedRoots.map { $0.canonicalized }
+        self.allowedExactTargets = allowedExactTargets.map { $0.canonicalized }
         self.protectedPaths = protectedPaths.map { $0.canonicalized }
         self.minimumDepth = minimumDepth
     }
@@ -87,7 +94,14 @@ public struct SafetyPolicy: Sendable {
             return SafetyRejection(reason: .isAllowedRootItself, path: target.path)
         }
 
-        // 4. Must live strictly inside a declared cleanable root.
+        // 4. An explicitly sanctioned exact target passes (its children do not —
+        //    a match here is by full-path equality only). Depth and protected-
+        //    path checks above still apply.
+        if allowedExactTargets.contains(where: { $0.hasSamePath(as: target) }) {
+            return nil
+        }
+
+        // 5. Must live strictly inside a declared cleanable root.
         guard allowedRoots.contains(where: { $0.isStrictAncestor(of: target) }) else {
             return SafetyRejection(reason: .outsideAllowedRoots, path: target.path)
         }

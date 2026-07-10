@@ -74,4 +74,60 @@ final class SafetyPolicyTests: XCTestCase {
         XCTAssertNotNil(reckless.validate(home.appendingPathComponent("Desktop")),
                         "~/Desktop must be refused")
     }
+
+    // MARK: - Exact targets
+
+    func test_exactTargetPassesOutsideAnyRoot() throws {
+        // A declared exact target passes even though no allowed root contains it.
+        let db = sandbox.appendingPathComponent("Preferences/quarantine.db")
+        try fm.createDirectory(at: db.deletingLastPathComponent(), withIntermediateDirectories: true)
+        XCTAssertTrue(fm.createFile(atPath: db.path, contents: Data("x".utf8)))
+
+        let p = SafetyPolicy(allowedRoots: [caches], allowedExactTargets: [db])
+        XCTAssertNil(p.validate(db), "a declared exact target must pass")
+    }
+
+    func test_nonListedSiblingOfExactTargetFails() throws {
+        // The sibling right next to an exact target gets no free pass.
+        let dir = sandbox.appendingPathComponent("Preferences")
+        let db = dir.appendingPathComponent("quarantine.db")
+        let sibling = dir.appendingPathComponent("settings.plist")
+        try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        XCTAssertTrue(fm.createFile(atPath: sibling.path, contents: Data("keep".utf8)))
+
+        let p = SafetyPolicy(allowedRoots: [caches], allowedExactTargets: [db])
+        XCTAssertEqual(p.validate(sibling)?.reason, .outsideAllowedRoots,
+                       "a non-listed sibling of an exact target must be refused")
+    }
+
+    func test_exactTargetStillSubjectToMinimumDepth() {
+        // Depth is checked before the exact-target match — a shallow path can
+        // never be sanctioned, even if explicitly listed.
+        let shallow = URL(fileURLWithPath: "/Users/somebody")
+        let p = SafetyPolicy(allowedRoots: [], allowedExactTargets: [shallow])
+        XCTAssertEqual(p.validate(shallow)?.reason, .tooShallow)
+    }
+
+    func test_exactTargetStillSubjectToProtectedPaths() throws {
+        // Protected paths are checked before the exact-target match — listing a
+        // protected location as an exact target must not unlock it.
+        let keep = sandbox.appendingPathComponent("Keep")
+        try fm.createDirectory(at: keep, withIntermediateDirectories: true)
+        let p = SafetyPolicy(allowedRoots: [], allowedExactTargets: [keep], protectedPaths: [keep])
+        XCTAssertEqual(p.validate(keep)?.reason, .protectedPath)
+    }
+
+    func test_exactTargetDirPassesButChildrenDoNot() throws {
+        // An exact-target directory matches by full-path equality only — its
+        // children fail unless they live under a declared root.
+        let sessions = sandbox.appendingPathComponent("zsh_sessions")
+        let child = sessions.appendingPathComponent("session1.hist")
+        try fm.createDirectory(at: sessions, withIntermediateDirectories: true)
+        XCTAssertTrue(fm.createFile(atPath: child.path, contents: Data("cmd".utf8)))
+
+        let p = SafetyPolicy(allowedRoots: [caches], allowedExactTargets: [sessions])
+        XCTAssertNil(p.validate(sessions), "the exact-target directory itself must pass")
+        XCTAssertEqual(p.validate(child)?.reason, .outsideAllowedRoots,
+                       "children of an exact target get no free pass")
+    }
 }

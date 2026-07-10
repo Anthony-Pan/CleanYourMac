@@ -1,8 +1,13 @@
 import Foundation
+#if canImport(Darwin)
+import Darwin
+#endif
 
-/// Finds browser and macOS privacy traces (caches, history, cookies, sessions,
-/// download lists, site data, recent items) under `~/Library` and, on request,
-/// moves the selected ones to the Trash.
+/// Finds browser, app, and macOS privacy traces (caches, history, cookies,
+/// sessions, download lists, site data, recent items, plus Chromium-embedded
+/// app traces and system-wide traces via the composed `ElectronTraceScanner`
+/// and `SystemTraceScanner`) and, on request, moves the selected ones to the
+/// Trash.
 ///
 /// Safety and scope:
 ///
@@ -25,33 +30,79 @@ public struct PrivacyScanner {
     /// The `~/Library` base to search. Injectable so tests can point it at a
     /// sandbox instead of the real home.
     public let libraryURL: URL
+    /// The home directory holding shell history files. Defaults to the parent
+    /// of `libraryURL`, so a sandboxed library implies a sandboxed home.
+    public let homeURL: URL
+    /// The per-user Darwin cache directory (QuickLook thumbnails live there).
+    /// `nil` by default — only `production()` supplies the real location, so
+    /// tests can never reach the real cache by accident.
+    public let darwinCacheURL: URL?
     public let disposer: FileDisposer
 
     public init(
         libraryURL: URL = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library"),
+        homeURL: URL? = nil,
+        darwinCacheURL: URL? = nil,
         disposer: FileDisposer = TrashDisposer()
     ) {
         self.libraryURL = libraryURL
+        self.homeURL = homeURL ?? libraryURL.deletingLastPathComponent()
+        self.darwinCacheURL = darwinCacheURL
         self.disposer = disposer
+    }
+
+    /// The scanner the real app uses: the default real `~/Library`/home plus
+    /// the real per-user Darwin cache directory, resolved via
+    /// `confstr(_CS_DARWIN_USER_CACHE_DIR)`.
+    public static func production() -> PrivacyScanner {
+        PrivacyScanner(darwinCacheURL: darwinUserCacheDirectory())
+    }
+
+    /// Resolves `confstr(_CS_DARWIN_USER_CACHE_DIR)` (e.g. `/var/folders/…/C/`),
+    /// or `nil` when the system refuses to answer.
+    private static func darwinUserCacheDirectory() -> URL? {
+        let length = confstr(_CS_DARWIN_USER_CACHE_DIR, nil, 0)
+        guard length > 0 else { return nil }
+        var buffer = [CChar](repeating: 0, count: length)
+        guard confstr(_CS_DARWIN_USER_CACHE_DIR, &buffer, length) == length else { return nil }
+        let path = String(cString: buffer)
+        return path.isEmpty ? nil : URL(fileURLWithPath: path, isDirectory: true)
+    }
+
+    // MARK: - Composed sub-scanners
+
+    private var electronScanner: ElectronTraceScanner {
+        ElectronTraceScanner(libraryURL: libraryURL)
+    }
+
+    private var systemScanner: SystemTraceScanner {
+        SystemTraceScanner(libraryURL: libraryURL, homeURL: homeURL, darwinCacheURL: darwinCacheURL)
     }
 
     // MARK: - Scanning (read-only)
 
-    /// Every browser/app with at least one non-empty trace, largest total first.
+    /// Every browser/app/subsystem with at least one non-empty trace, largest
+    /// total first: the known browsers, macOS Recent Items, signature-detected
+    /// Chromium-embedded apps, and system-wide macOS traces.
     public func scan() -> [PrivacyGroup] {
-        PrivacyApp.allCases
+        let fixedGroups = (PrivacyApp.browsers + [.systemRecents])
             .map { PrivacyGroup(app: $0, items: items(for: $0)) }
+        return (fixedGroups + electronScanner.groups() + systemScanner.groups())
             .filter { !$0.items.isEmpty }
             .sorted { $0.totalBytes > $1.totalBytes }
     }
 
-    /// The concrete traces for one browser or macOS subsystem, skipping anything
-    /// missing or empty.
+    /// The concrete traces for one browser, app, or macOS subsystem, skipping
+    /// anything missing or empty.
     public func items(for app: PrivacyApp) -> [PrivacyItem] {
         switch app {
         case .firefox:       return firefoxItems()
         case .safari:        return safariItems()
         case .systemRecents: return systemRecentsItems()
+        case .electron:
+            return electronScanner.groups().first { $0.app == app }?.items ?? []
+        case .quickLook, .savedState, .quarantine, .shellHistory, .diagnostics:
+            return systemScanner.groups().first { $0.app == app }?.items ?? []
         default:             return chromiumItems(for: app)
         }
     }
@@ -406,9 +457,11 @@ public struct PrivacyScanner {
             } else if name.hasPrefix("com.apple.LSSharedFileList.RecentServers") ||
                       name.hasPrefix("com.apple.LSSharedFileList.RecentHosts") {
                 add(&out, .systemRecents, .recentServers, entry)
-            } else if name == "ApplicationRecentDocuments" {
+            } else if name == "ApplicationRecentDocuments" ||
+                      name.hasPrefix("com.apple.LSSharedFileList.ApplicationRecentDocuments") {
                 // The entire per-app recent-files directory as a single item —
-                // clearing it is atomic and avoids partial state.
+                // clearing it is atomic and avoids partial state. macOS 26+
+                // prefixes the directory name with the shared-file-list domain.
                 add(&out, .systemRecents, .appRecents, entry)
             }
         }
@@ -427,7 +480,8 @@ public struct PrivacyScanner {
     /// this guard guarantees that even a future edit to those tables can never
     /// turn one of them into a removable item. `clear(_:dryRun:)` applies a
     /// second check against this set before passing items to the Cleaner gate.
-    private static let neverRemoveBasenames: Set<String> = [
+    /// Internal (not private) because every composed sub-scanner enforces it too.
+    static let neverRemoveBasenames: Set<String> = [
         // Saved passwords / credentials.
         "login data", "login data-journal",
         "login data for account", "login data for account-journal",
@@ -452,13 +506,20 @@ public struct PrivacyScanner {
     ]
 
     /// Returns the canonical form used for denylist comparison: lowercased with
-    /// any trailing SQLite journal suffix (`-wal`, `-shm`, `-journal`) removed,
-    /// so `Login Data-wal` is treated identically to `Login Data`.
-    private static func normalizeBasename(_ name: String) -> String {
+    /// every trailing SQLite journal suffix (`-wal`, `-shm`, `-journal`) removed,
+    /// so `Login Data-wal` — and even a crafted `Login Data-wal-shm` — is treated
+    /// identically to `Login Data`. Stripping loops until no suffix remains so a
+    /// stacked-suffix name can never slip past the denylist.
+    static func normalizeBasename(_ name: String) -> String {
         var s = name.lowercased()
-        for suffix in ["-wal", "-shm", "-journal"] where s.hasSuffix(suffix) {
-            s = String(s.dropLast(suffix.count))
-            break
+        var stripped = true
+        while stripped {
+            stripped = false
+            for suffix in ["-wal", "-shm", "-journal"] where s.hasSuffix(suffix) {
+                s = String(s.dropLast(suffix.count))
+                stripped = true
+                break
+            }
         }
         return s
     }
@@ -507,22 +568,39 @@ public struct PrivacyScanner {
     // MARK: - Removal
 
     /// Move the given traces to the Trash (or, in `dryRun`, report what *would*
-    /// happen). Every path is validated in two stages:
+    /// happen). Every path is validated in three stages:
     ///
     ///  1. Pre-flight denylist check (this method): any item whose normalised
     ///     basename is on the never-remove list is blocked with `.protectedContent`
     ///     before reaching the Cleaner — defense in depth against stale or crafted
     ///     `PrivacyItem` values.
-    ///  2. `SafetyPolicy` gate (inside `Cleaner`): every remaining item must live
-    ///     strictly inside a declared allowed root.
+    ///  2. Structural check (this method): any item located *inside* a detected
+    ///     Electron root may only name one of the fixed electron trace entries.
+    ///     The check is keyed on the item's real location, not its self-declared
+    ///     `app`, so a mislabeled or crafted item pointing at app content inside
+    ///     a detected root cannot bypass it. Anything else is blocked with
+    ///     `.protectedContent`.
+    ///  3. `SafetyPolicy` gate (inside `Cleaner`): every remaining item must live
+    ///     strictly inside a declared allowed root or be a declared exact target.
     public func clear(_ items: [PrivacyItem], dryRun: Bool) -> CleanReport {
         var report = CleanReport(dryRun: dryRun)
         var safeItems: [PrivacyItem] = []
 
+        // Detected Electron roots are whole app directories that also hold app
+        // content and config; the trace-name allowlist is what keeps everything
+        // else in them off-limits. Keyed on location, so attribution can't lie.
+        let electronRoots = electronScanner.detectedRoots().map { $0.canonicalized }
+
         for item in items {
-            if Self.neverRemoveBasenames.contains(
-                Self.normalizeBasename(item.url.lastPathComponent)
-            ) {
+            let normalized = Self.normalizeBasename(item.url.lastPathComponent)
+            let target = item.url.canonicalized
+            let insideElectronRoot = electronRoots.contains { $0.isStrictAncestor(of: target) }
+            if Self.neverRemoveBasenames.contains(normalized) {
+                report.blocked.append(
+                    SafetyRejection(reason: .protectedContent, path: item.url.path)
+                )
+            } else if insideElectronRoot,
+                      !ElectronTraceScanner.electronTraceBasenames.contains(normalized) {
                 report.blocked.append(
                     SafetyRejection(reason: .protectedContent, path: item.url.path)
                 )
@@ -531,9 +609,9 @@ public struct PrivacyScanner {
             }
         }
 
-        let policy = SafetyPolicy(allowedRoots: allowedRoots())
+        let policy = SafetyPolicy(allowedRoots: allowedRoots(), allowedExactTargets: exactTargets())
         let scanItems = safeItems.map {
-            ScanItem(url: $0.url, categoryID: "privacy-\($0.app.rawValue)",
+            ScanItem(url: $0.url, categoryID: "privacy-\($0.app.key)",
                      sizeBytes: $0.sizeBytes, modificationDate: nil)
         }
         let inner = Cleaner(policy: policy, disposer: disposer).clean(scanItems, dryRun: dryRun)
@@ -609,6 +687,23 @@ public struct PrivacyScanner {
         // macOS Recent Items shared-file-list directory.
         roots.append(appSupport.appendingPathComponent("com.apple.sharedfilelist"))
 
+        // System trace directories (Saved Application State, DiagnosticReports) —
+        // fixed paths derived from libraryURL.
+        roots.append(contentsOf: systemScanner.roots())
+
+        // Signature-verified Chromium-embedded app tiers — read from the real
+        // disk layout (the same sanctioned precedent as profile enumeration),
+        // never from item paths.
+        roots.append(contentsOf: electronScanner.detectedRoots())
+
         return roots
+    }
+
+    /// The fixed set of exact single-location traces the Privacy cleaner may
+    /// remove *themselves* (the quarantine database, shell history files, the
+    /// QuickLook cache directory). Like `allowedRoots()`, declarative — never
+    /// derived from the items being cleared.
+    func exactTargets() -> [URL] {
+        systemScanner.exactTargets()
     }
 }
