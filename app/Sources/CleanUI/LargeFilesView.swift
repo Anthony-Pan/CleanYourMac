@@ -429,10 +429,16 @@ struct LargeFilesView: View {
         model.visibleFiles.map(\.sizeBytes).max() ?? 0
     }
 
+    /// Tri-state for the master checkbox: some-but-not-all shows the minus.
+    private var allShownState: CheckState {
+        if model.selectedCount == 0 { return .off }
+        return model.selectedCount == model.visibleFiles.count ? .on : .mixed
+    }
+
     private var selectAllRow: some View {
         Button { model.toggleAllVisible() } label: {
             HStack(spacing: 12) {
-                GlassCheckbox(on: model.allVisibleSelected) { model.toggleAllVisible() }
+                GlassCheckbox(state: allShownState) { model.toggleAllVisible() }
                 Text(model.allVisibleSelected ? "Deselect all shown" : "Select all shown")
                     .font(.system(size: 12.5, weight: .medium))
                     .foregroundStyle(Palette.ink2)
@@ -552,16 +558,13 @@ private struct LargeFileRow: View {
                 .frame(width: 26)
 
             VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 7) {
-                    Text(file.name)
-                        .font(.system(size: 13.5, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                    if let age = ageBadge {
-                        TagBadge(text: age, color: PillTone.warn.text)
-                    }
-                }
+                // Age is told once, honestly labeled, by the "Unused 1y"
+                // caption next to the size — no duplicate warn-tinted chip.
+                Text(file.name)
+                    .font(.system(size: 13.5, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
                 Text(file.path)
                     .font(.system(size: 11))
                     .foregroundStyle(Palette.tiny)
@@ -617,14 +620,6 @@ private struct LargeFileRow: View {
             // Ignoring only hides the file from results — it is never touched.
             Button("Ignore This File", action: onIgnore)
         }
-    }
-
-    /// Show an age chip only for genuinely unused files ("2y", "8mo", "180d"),
-    /// judged by the later of modified/opened.
-    private var ageBadge: String? {
-        guard let days = file.ageDays(now: now), days >= 180 else { return nil }
-        if days >= 365 { return "\(days / 365)y" }
-        return "\(days / 30)mo"
     }
 
     /// A short honest caption of when the file was last modified or opened.

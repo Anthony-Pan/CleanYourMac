@@ -93,6 +93,10 @@ final class ScanViewModel {
         group.items.filter { selectedItems.contains($0.id) }.count
     }
 
+    func selectedBytes(in group: ScanResultGroup) -> Int64 {
+        group.items.reduce(0) { $0 + (selectedItems.contains($1.id) ? $1.sizeBytes : 0) }
+    }
+
     /// Tri-state checkbox mapping for a category row.
     func checkState(_ group: ScanResultGroup) -> CheckState {
         switch categoryState(group) {

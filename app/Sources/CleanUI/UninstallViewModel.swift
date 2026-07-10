@@ -94,8 +94,9 @@ final class UninstallViewModel {
     /// real, so a partial sum is never presented as the total.
     var totalBundleBytes: Int64 { visibleApps.reduce(0) { $0 + (sizes[$1.id] ?? 0) } }
 
-    /// The largest known size, for the relative size bar on each row.
-    var maxKnownVisibleBytes: Int64 { sizes.values.max() ?? 0 }
+    /// The largest known size among *visible* apps, for the relative size bar
+    /// on each row — bars rescale to the rows the search actually shows.
+    var maxKnownVisibleBytes: Int64 { visibleApps.compactMap { sizes[$0.id] }.max() ?? 0 }
 
     /// The app's real on-disk size, or `nil` while it is still being computed
     /// (render a shimmer, never a number).

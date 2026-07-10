@@ -263,8 +263,10 @@ private struct AppUninstallRow: View {
     @ViewBuilder private var statusBadge: some View {
         if app.isSystem {
             TagBadge(text: "System", color: Color.white.opacity(0.55))
+                .help("This is a system app and is protected — it can’t be uninstalled here.")
         } else if model.isSelf(app) {
             TagBadge(text: "This app", color: Color.white.opacity(0.55))
+                .help("CleanYourMac can’t uninstall itself.")
         } else if model.isRunning(app) {
             TagBadge(text: "Running", color: PillTone.warn.text)
         }

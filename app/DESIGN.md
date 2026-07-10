@@ -61,16 +61,26 @@ button. Privacy uses a warmer aurora variant.
 bold white / sub 12.5 pt white-0.55 / CTACircle("Scan") / row of up to three
 StatCards (real data only — never invent numbers).
 
-**Busy** — centered: Orb(animating) with live counter overlaid in its center
-(byte count 32 pt bold + status line 12 pt white-0.85) / 280 pt indeterminate
-progress bar / GhostButton("Stop") when cancellable, else nothing.
+**Busy (scanning)** — centered: Orb(animating) with a "JUNK FOUND" slab
+caption + 32 pt bold byte counter overlaid in its center / 280 pt determinate
+SweepBar (fraction = done categories ÷ total, shimmer sweeps inside the filled
+portion) / "Step N of M locations" caption 11 pt tiny / merged status line
+12.5 pt sub ("Scanning ~/Library/… · 129 items found", middle-truncated,
+≤380 pt) / per-category progress rows (13.5 pt name; green "✓ bytes" when
+done; focused glass card while active; 0.5 opacity while waiting) /
+GhostButton("Stop") when cancellable, else nothing. The cleaning screen uses
+the SweepBar's indeterminate variant (`fraction: nil`) with a live
+"Moving N items (X GB) to Trash…" sub-line.
 
 **List / results** — TopBar + content in glass rows/cards + BottomBar with
 summary caption left ("4 of 5 categories · 3.5 GB selected") and
 GhostButton + GradientButton right. Row anatomy: GlassCheckbox / 32 pt icon
 tile / name 13.5 semibold + tiny 11 sub-line + optional `RelativeSizeBar`
 under the name / trailing size in `SizeText` (13.5 pt semibold white-0.82,
-monospaced digits; `emphasized` white on the largest row). Focused row:
+monospaced digits; `emphasized` white on the largest row — the emphasized
+treatment is scoped to Smart Scan category rows). Nested detail rows
+(inspector items, uninstall leftovers) intentionally use the lighter 11–13 pt
+sub/tiny sizes so the top-level rows keep the visual weight. Focused row:
 border rgba(150,130,255,.55) + soft purple outer glow.
 
 **Inspector split (Smart Scan results)** — left: category rows; right: 320 pt
@@ -84,10 +94,19 @@ segment per group, plus a legend of real per-group totals).
 **Uninstaller** — two-phase discovery: app names + icons appear first
 (alphabetical, < 1 s), real bundle sizes stream in afterwards. A not-yet-sized
 row shows `SizePending` — never a fake number. A sort Menu (Name / Size) sits
-in the TopBar; the list never auto-resorts while sizes stream. The 70 pt
+in the TopBar; the default Name order never auto-resorts while sizes stream,
+while the user-chosen Size order re-ranks as sizes land (the menu flags it
+"Size (still calculating)" until every app is sized). The 70 pt
 BottomBar is required: real progress while sizing ("N apps · sizing X of Y…"),
 real totals when done. The inspector-split from ref-3e was evaluated and the
 inline leftover accordion is retained.
+
+**Large & Old Files** — deviates from the generic list pattern on purpose:
+Rescan and the blue count/size pill live in the TopBar, all filter controls sit
+in one glass toolbar card, the master "Select all shown" checkbox is tri-state,
+and the BottomBar carries the caption + a single GradientButton. Empty
+selection reads "Nothing selected yet — review and pick files above." with a
+plain disabled "Clean" — never "Clean Zero KB".
 
 **Done** — centered: 64 pt white checkmark symbol / 26 pt bold headline /
 muted summary / CTACircle("Scan Again").
@@ -105,8 +124,6 @@ muted summary / CTACircle("Scan Again").
   banners); `.good` for completed/safe states. `.red` is used ONLY for the
   Privacy results trace total — clearing traces is inherently a caution
   (sign-outs, lost tabs), so that one total is intentionally not neutral.
-- Legacy (delete once unused): `ModuleTheme`, `ModuleBackground`, `HeroBlob`,
-  `CircleActionButton`, `GlassPill`, `Palette.warn/muted/faint/glassGradient`.
 
 ## Sidebar (210 pt)
 

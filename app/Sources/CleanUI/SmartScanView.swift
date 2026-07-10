@@ -45,7 +45,7 @@ struct SmartScanView: View {
                 .foregroundStyle(.white)
                 .padding(.top, 6)
 
-            Text("Find caches, logs and developer junk you can safely reclaim.")
+            Text("Find caches, logs and other leftover files you can safely reclaim.")
                 .font(.system(size: 12.5))
                 .foregroundStyle(Palette.sub)
                 .multilineTextAlignment(.center)
@@ -431,7 +431,10 @@ struct SmartScanView: View {
 
             Spacer()
 
-            SizeText(group.totalBytes, emphasized: group.id == sortedGroups.first?.id)
+            // Mixed rows show the bytes actually selected so the visible rows
+            // always sum to the hero total (and to the Clean button).
+            SizeText(state == .mixed ? model.selectedBytes(in: group) : group.totalBytes,
+                     emphasized: group.id == sortedGroups.first?.id)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 16)
@@ -441,6 +444,17 @@ struct SmartScanView: View {
     }
 
     // MARK: Inspector panel (right column)
+
+    /// Partially-selected categories spell out both numbers ("… · 103.0 GB of
+    /// 104.62 GB") so the totals on screen always reconcile with the hero.
+    private func inspectorSelectionLine(_ group: ScanResultGroup) -> String {
+        let count = model.selectedCount(in: group)
+        let prefix = "\(count) of \(group.items.count) selected"
+        guard count > 0, count < group.items.count else {
+            return "\(prefix) · \(ByteFormat.human(group.totalBytes))"
+        }
+        return "\(prefix) · \(ByteFormat.human(model.selectedBytes(in: group))) of \(ByteFormat.human(group.totalBytes))"
+    }
 
     @ViewBuilder private var inspectorPanel: some View {
         if let group = inspectedGroup {
@@ -454,7 +468,7 @@ struct SmartScanView: View {
                     .foregroundStyle(Palette.sub)
                     .padding(.top, 3)
 
-                Text("\(model.selectedCount(in: group)) of \(group.items.count) selected · \(ByteFormat.human(group.totalBytes))")
+                Text(inspectorSelectionLine(group))
                     .font(.system(size: 12.5))
                     .foregroundStyle(Palette.sub)
                     .padding(.top, 3)
