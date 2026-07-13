@@ -113,4 +113,15 @@ final class ScannerCleanerTests: XCTestCase {
         XCTAssertTrue(names.contains("old.log"))
         XCTAssertFalse(names.contains("recent.log"), "files newer than the age threshold are kept")
     }
+
+    func test_expandedURLMatchesScannerExpansion() {
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        let tilde = CleanupTarget(path: "~/Library/Caches")
+        XCTAssertEqual(tilde.expandedURL.path, "\(home)/Library/Caches",
+                       "a leading ~ expands to the user's home")
+
+        let absolute = CleanupTarget(path: caches.path)
+        XCTAssertEqual(absolute.expandedURL.path, caches.path,
+                       "absolute paths pass through unchanged")
+    }
 }

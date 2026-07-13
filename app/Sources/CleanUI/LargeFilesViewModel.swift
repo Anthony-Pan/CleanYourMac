@@ -98,6 +98,8 @@ final class LargeFilesViewModel {
     /// Paths explicitly selected for removal. Empty by default (safety).
     private(set) var selected: Set<String> = []
     private(set) var lastReport: CleanReport?
+    /// True when the last walk was stopped early, so totals are partial.
+    private(set) var wasCancelled = false
 
     /// Live scan progress (entries examined / large files found so far).
     private(set) var progressScanned = 0
@@ -316,6 +318,7 @@ final class LargeFilesViewModel {
         phase = .scanning
         selected = []
         lastReport = nil
+        wasCancelled = false
         progressScanned = 0
         progressFound = 0
 
@@ -341,7 +344,13 @@ final class LargeFilesViewModel {
 
         // A cancelled walk still returns everything found so far, so Stop lands
         // on partial results instead of an empty screen.
-        allFiles = await task.value
+        let results = await task.value
+        // A newer scan() superseded this one while we were walking; its
+        // completion owns the state — publishing here would wipe the newer
+        // run's engine handle and flash stale results mid-scan.
+        guard engineTask == task else { return }
+        allFiles = results
+        wasCancelled = task.isCancelled
         engineTask = nil
         phase = .results
     }

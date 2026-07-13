@@ -24,6 +24,12 @@ struct SmartScanView: View {
             }
         }
         .navigationTitle("Smart Scan")
+        // The Uninstaller cancels the app-size stream when its screen
+        // disappears; the Applications card also shows those sizes, so
+        // resume the stream whenever results are on screen (idempotent).
+        .task(id: model.phase) {
+            if model.phase == .results { model.apps.resumeSizingIfNeeded() }
+        }
     }
 
     // MARK: - Idle
@@ -174,8 +180,10 @@ struct SmartScanView: View {
     private var resultsView: some View {
         VStack(spacing: 0) {
             TopBar(title: "Smart Scan") {
-                if model.wasCancelled {
+                if model.isPartial {
                     StatusPill(text: "Partial — scan stopped early", tone: .warn)
+                } else if model.foundBytes == 0 {
+                    StatusPill(text: "All clear", tone: .good)
                 } else {
                     StatusPill(text: "\(ByteFormat.human(model.foundBytes)) found", tone: .blue)
                 }
@@ -207,7 +215,7 @@ struct SmartScanView: View {
             .padding(.bottom, 14)
 
             BottomBar {
-                Text("\(model.doneCount) of \(model.moduleCount) areas scanned · \(ByteFormat.human(model.foundBytes)) found")
+                Text(bottomCaption)
                     .font(.system(size: 12.5))
                     .monospacedDigit()
                     .foregroundStyle(Palette.sub)
@@ -219,8 +227,17 @@ struct SmartScanView: View {
         }
     }
 
-    /// Hero: everything the scan found across the reviewable areas. "All
-    /// clear" replaces a fake-looking zero byte count.
+    private var bottomCaption: String {
+        let base = "\(model.doneCount) of \(model.moduleCount) areas scanned"
+        if model.foundBytes > 0 {
+            return base + " · \(ByteFormat.human(model.foundBytes)) found"
+        }
+        return base + (model.isPartial ? " · stopped early" : " · all clear")
+    }
+
+    /// Hero: everything the scan found across the reviewable areas, overlap
+    /// counted once. "All clear" replaces a fake-looking zero byte count —
+    /// unless the scan was stopped early, which never earns a clean bill.
     private var summaryHeader: some View {
         VStack(alignment: .leading, spacing: 4) {
             if model.foundBytes > 0 {
@@ -230,6 +247,13 @@ struct SmartScanView: View {
                     .monospacedDigit()
                     .contentTransition(.numericText())
                 Text("found across junk, large files and privacy · open an area to review and clean")
+                    .font(.system(size: 12.5))
+                    .foregroundStyle(Palette.sub)
+            } else if model.isPartial {
+                Text("Scan stopped early")
+                    .font(.system(size: 30, weight: .bold))
+                    .foregroundStyle(.white)
+                Text("nothing found before the scan was stopped — rescan for a full picture")
                     .font(.system(size: 12.5))
                     .foregroundStyle(Palette.sub)
             } else {
@@ -247,9 +271,11 @@ struct SmartScanView: View {
     private func cardValue(_ module: SmartScanViewModel.Module) -> String {
         switch module {
         case .junk:
-            return model.junkBytes > 0 ? ByteFormat.human(model.junkBytes) : "All clear"
+            if model.junkBytes > 0 { return ByteFormat.human(model.junkBytes) }
+            return model.junkPartial ? "Stopped early" : "All clear"
         case .largeFiles:
-            return model.filesBytes > 0 ? ByteFormat.human(model.filesBytes) : "All clear"
+            if model.filesBytes > 0 { return ByteFormat.human(model.filesBytes) }
+            return model.filesPartial ? "Stopped early" : "All clear"
         case .privacy:
             return model.privacyBytes > 0 ? ByteFormat.human(model.privacyBytes) : "All clear"
         case .apps:
@@ -262,12 +288,14 @@ struct SmartScanView: View {
     private func cardDetail(_ module: SmartScanViewModel.Module) -> String? {
         switch module {
         case .junk:
-            return model.junkBytes > 0
-                ? "\(model.junkItemCount) items · safe items pre-selected"
+            if model.junkBytes > 0 { return "\(model.junkItemCount) items · safe items pre-selected" }
+            return model.junkPartial
+                ? "scan didn't finish — rescan for a full picture"
                 : "no junk in the scanned locations"
         case .largeFiles:
-            return model.filesBytes > 0
-                ? "\(model.filesCount) files to review in your folders"
+            if model.filesBytes > 0 { return "\(model.filesCount) files to review in your folders" }
+            return model.filesPartial
+                ? "scan didn't finish — rescan for a full picture"
                 : "no files over the size threshold"
         case .privacy:
             let issues = model.privacyFindingCount

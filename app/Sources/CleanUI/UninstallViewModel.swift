@@ -219,12 +219,18 @@ final class UninstallViewModel {
     func cancelSizing() { sizingTask?.cancel() }
 
     private func startSizing(_ apps: [InstalledApp]) {
+        // Cancel any stream a previous scan started before its own sizingTask
+        // was assigned — two live streams would double-count sizedCount and
+        // flip `isSizing` false while sizes still has missing keys.
+        sizingTask?.cancel()
         let engine = discovery
         sizingTask = Task { [weak self] in
             for await (id, bytes) in engine.sizeStream(for: apps) {
                 guard let self, !Task.isCancelled else { break }
                 self.sizes[id] = bytes
-                self.sizedCount += 1
+                // Derived, not incremented: stays correct across overlapping
+                // or resumed passes (duplicate yields can't inflate it).
+                self.sizedCount = self.sizes.count
             }
         }
     }

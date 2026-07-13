@@ -278,6 +278,15 @@ final class PrivacyViewModel {
         }.value
 
         lastReport = report
+        // Prune what actually moved to the Trash so every derived total
+        // (including the Smart Scan dashboard reading these groups) reflects
+        // reality; skipped/failed items stay listed.
+        let trashed = Set(report.trashed)
+        groups = groups.compactMap { group in
+            let remaining = group.items.filter { !trashed.contains($0.id) }
+            return remaining.isEmpty ? nil : PrivacyGroup(app: group.app, items: remaining)
+        }
+        selected.subtract(trashed)
         phase = .done
     }
 }

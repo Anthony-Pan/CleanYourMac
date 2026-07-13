@@ -27,6 +27,11 @@ public struct CleanupTarget: Sendable, Equatable {
         self.scope = scope
         self.minAgeDays = minAgeDays
     }
+
+    /// The target's base directory with a leading `~` expanded — the same
+    /// expansion the scanner itself applies, so callers comparing paths
+    /// against scan results agree with what was actually walked.
+    public var expandedURL: URL { Scanner.expand(path) }
 }
 
 /// A user-facing group of cleanable things (e.g. "User Caches").
