@@ -6,7 +6,7 @@ import CleanUI
 // Off-screen renderer (no window / screen-recording needed).
 //   swift run snapshot                        -> every screen to /tmp/cym-<case>.png
 //   swift run snapshot all                    -> same
-//   swift run snapshot <caseName> [outPath]   -> one screen (e.g. smartScanResults)
+//   swift run snapshot <caseName> [outPath]   -> one screen (e.g. systemJunkResults)
 //   swift run snapshot icon [outPath]         -> 1024×1024 app icon artwork
 
 @MainActor

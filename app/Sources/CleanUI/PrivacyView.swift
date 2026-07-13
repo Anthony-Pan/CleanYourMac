@@ -67,7 +67,7 @@ struct PrivacyView: View {
 
             Spacer()
 
-            // Mirrors the Smart Scan idle StatCard row. Only factual, pre-scan
+            // Mirrors the System Junk idle StatCard row. Only factual, pre-scan
             // data belongs here — no trace counts exist before a scan runs.
             HStack(spacing: 14) {
                 StatCard(label: "Safety",

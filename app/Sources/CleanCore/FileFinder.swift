@@ -55,7 +55,7 @@ public struct FileFinder {
     }
 
     /// Never walked regardless of the chosen roots: the user's `~/Library`
-    /// (caches/settings belong to Smart Scan, documents don't live there) and
+    /// (caches/settings belong to System Junk, documents don't live there) and
     /// the Trash (its contents are already scheduled for deletion).
     public static var defaultExcludedDirs: [URL] {
         let home = FileManager.default.homeDirectoryForCurrentUser

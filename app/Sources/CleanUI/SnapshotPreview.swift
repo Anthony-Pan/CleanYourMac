@@ -6,7 +6,7 @@ import CleanCore
 /// what `RootView` would show — the module stage, the sidebar rail, and the
 /// actual module view — so the render is the design, not a copy of it.
 public enum SnapshotScreen: String, CaseIterable {
-    case smartScanIdle, smartScanResults, uninstaller, largeFiles, privacyIdle, privacyResults
+    case systemJunkIdle, systemJunkResults, uninstaller, largeFiles, privacyIdle, privacyResults
 
     /// The full window (stage + rail + module view) at a fixed design size.
     @MainActor
@@ -26,7 +26,7 @@ public enum SnapshotScreen: String, CaseIterable {
 
     private var section: AppSection {
         switch self {
-        case .smartScanIdle, .smartScanResults: return .smartScan
+        case .systemJunkIdle, .systemJunkResults: return .systemJunk
         case .uninstaller:                      return .uninstaller
         case .largeFiles:                       return .largeFiles
         case .privacyIdle, .privacyResults:     return .privacy
@@ -36,10 +36,10 @@ public enum SnapshotScreen: String, CaseIterable {
     @MainActor
     @ViewBuilder private var content: some View {
         switch self {
-        case .smartScanIdle:
-            SmartScanView(model: ScanViewModel())
-        case .smartScanResults:
-            SmartScanView(model: ScanViewModel(mockGroups: Self.mockGroups(), expandFirst: false))
+        case .systemJunkIdle:
+            SystemJunkView(model: ScanViewModel())
+        case .systemJunkResults:
+            SystemJunkView(model: ScanViewModel(mockGroups: Self.mockGroups(), expandFirst: false))
         case .uninstaller:
             UninstallerView(model: UninstallViewModel(
                 mockApps: Self.mockApps(),

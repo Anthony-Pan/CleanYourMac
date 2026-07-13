@@ -28,7 +28,7 @@ let categories = CleanupCategory.mvpUserSafe
 let policy = SafetyPolicy.policy(for: categories)
 let scanner = Scanner(policy: policy)
 
-print("🧹 CleanYourMac — Smart Scan\n")
+print("🧹 CleanYourMac — System Junk scan\n")
 
 let groups = scanner.scan(categories: categories)
 var total: Int64 = 0

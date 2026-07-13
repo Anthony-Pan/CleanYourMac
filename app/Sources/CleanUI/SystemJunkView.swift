@@ -2,7 +2,9 @@ import SwiftUI
 import AppKit
 import CleanCore
 
-struct SmartScanView: View {
+/// The System Junk module: scans the fixed safe-cleanup categories (caches,
+/// logs, build leftovers) and cleans the reviewed selection to the Trash.
+struct SystemJunkView: View {
     let model: ScanViewModel
     @State private var showConfirm = false
     @State private var volumeFree: Int64?
@@ -27,14 +29,14 @@ struct SmartScanView: View {
                 resultsView
             }
         }
-        .navigationTitle("Smart Scan")
+        .navigationTitle("System Junk")
     }
 
     // MARK: - Idle (start screen with a Scan button)
 
     private var idleView: some View {
         VStack(spacing: 0) {
-            TopBar(title: "Smart Scan") { StatusPill(text: "Ready", tone: .blue) }
+            TopBar(title: "System Junk") { StatusPill(text: "Ready", tone: .blue) }
 
             Spacer()
 
@@ -93,7 +95,7 @@ struct SmartScanView: View {
         let doneCount = model.categoryProgress.filter { $0.state == .done }.count
         let totalCount = model.categoryProgress.count
         return VStack(spacing: 0) {
-            TopBar(title: "Smart Scan") { StatusPill(text: "Scanning…", tone: .blue) }
+            TopBar(title: "System Junk") { StatusPill(text: "Scanning…", tone: .blue) }
 
             Spacer()
 
@@ -184,7 +186,7 @@ struct SmartScanView: View {
 
     private var cleaningView: some View {
         VStack(spacing: 0) {
-            TopBar(title: "Smart Scan") { StatusPill(text: "Cleaning…", tone: .blue) }
+            TopBar(title: "System Junk") { StatusPill(text: "Cleaning…", tone: .blue) }
 
             Spacer()
 
@@ -220,7 +222,7 @@ struct SmartScanView: View {
         var summary = "Freed \(ByteFormat.human(model.lastReport?.freedBytes ?? 0)) · moved \(model.lastReport?.trashed.count ?? 0) items to Trash"
         if skipped > 0 { summary += " · \(skipped) items could not be moved" }
         return VStack(spacing: 0) {
-            TopBar(title: "Smart Scan") {
+            TopBar(title: "System Junk") {
                 if skipped > 0 {
                     StatusPill(text: "\(skipped) skipped", tone: .warn)
                 } else {
@@ -256,7 +258,7 @@ struct SmartScanView: View {
 
     private var resultsView: some View {
         VStack(spacing: 0) {
-            TopBar(title: "Smart Scan") {
+            TopBar(title: "System Junk") {
                 if model.wasCancelled {
                     StatusPill(text: "Partial — scan stopped early", tone: .warn)
                 } else {

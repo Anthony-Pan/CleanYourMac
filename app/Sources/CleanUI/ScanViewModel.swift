@@ -6,7 +6,7 @@ enum CategorySelection {
     case none, some, all
 }
 
-/// Drives the Smart Scan screen. Selection is tracked per *item* (not per
+/// Drives the System Junk screen. Selection is tracked per *item* (not per
 /// category) so the user can review and exclude individual files.
 @MainActor
 @Observable

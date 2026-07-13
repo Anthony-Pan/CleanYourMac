@@ -2,12 +2,12 @@ import SwiftUI
 
 /// App sections shown in the sidebar.
 enum AppSection: String, CaseIterable, Identifiable {
-    case smartScan, uninstaller, largeFiles, privacy
+    case systemJunk, uninstaller, largeFiles, privacy
 
     var id: String { rawValue }
     var title: String {
         switch self {
-        case .smartScan: return "Smart Scan"
+        case .systemJunk: return "System Junk"
         case .uninstaller: return "Uninstaller"
         case .largeFiles: return "Large & Old Files"
         case .privacy: return "Privacy"
@@ -15,7 +15,7 @@ enum AppSection: String, CaseIterable, Identifiable {
     }
     var symbol: String {
         switch self {
-        case .smartScan: return "sparkles"
+        case .systemJunk: return "internaldrive"
         case .uninstaller: return "trash"
         case .largeFiles: return "doc.viewfinder"
         case .privacy: return "hand.raised"
@@ -25,7 +25,7 @@ enum AppSection: String, CaseIterable, Identifiable {
     var dotGradient: LinearGradient {
         let colors: [Color]
         switch self {
-        case .smartScan:   colors = [Color(hex: 0x6FD3FF), Color(hex: 0x8F5BFF)]
+        case .systemJunk:  colors = [Color(hex: 0x6FA8FF), Color(hex: 0x3E62D9)]
         case .largeFiles:  colors = [Color(hex: 0x5BE0C8), Color(hex: 0x1FA88F)]
         case .privacy:     colors = [Color(hex: 0xFF8FD0), Color(hex: 0xC04AE0)]
         case .uninstaller: colors = [Color(hex: 0xFFC37B), Color(hex: 0xFF7A4D)]
@@ -39,7 +39,7 @@ enum AppSection: String, CaseIterable, Identifiable {
 public struct RootView: View {
     public init() {}
 
-    @State private var selection: AppSection = .smartScan
+    @State private var selection: AppSection = .systemJunk
     // Owned here so their state (scan results, discovered apps) survives sidebar
     // switches instead of being thrown away each time the view is recreated.
     @State private var scanModel = ScanViewModel()
@@ -57,8 +57,8 @@ public struct RootView: View {
 
                 ZStack {
                     switch selection {
-                    case .smartScan:
-                        SmartScanView(model: scanModel)
+                    case .systemJunk:
+                        SystemJunkView(model: scanModel)
                     case .uninstaller:
                         UninstallerView(model: uninstallModel)
                     case .largeFiles:

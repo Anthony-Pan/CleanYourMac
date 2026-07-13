@@ -66,4 +66,4 @@ app's bundle identifier. It reuses the same safety spine (`UninstallPolicy`):
 2. **Leftover allowlist** — associated files are only ever removed from a fixed set of `~/Library` subdirectories (Application Support, Caches, Preferences, Containers, Group Containers, Saved Application State, Logs, HTTPStorages, WebKit, Cookies, LaunchAgents, Application Scripts). Nothing under `/Library`, `/private/var` or any root-owned location is touched.
 3. **Confidence** — bundle-id matches (e.g. `com.foo.Bar`) are exact and auto-selected; app-name and Group-Container matches are heuristic, flagged for review, and **off by default**.
 4. **Never** — Apple / system apps (`com.apple.*`, `/System`), the app's own bundle, whole well-known directories, and anything that resolves (via symlink) outside the allowed roots.
-5. **Trash, not delete**, and every path is re-validated immediately before disposal — same as Smart Scan.
+5. **Trash, not delete**, and every path is re-validated immediately before disposal — same as System Junk.

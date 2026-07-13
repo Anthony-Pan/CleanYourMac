@@ -9,7 +9,7 @@ struct Sidebar: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            item(.smartScan)
+            item(.systemJunk)
                 .padding(.top, 44)
 
             header("Cleanup")

@@ -78,12 +78,12 @@ GhostButton + GradientButton right. Row anatomy: GlassCheckbox / 32 pt icon
 tile / name 13.5 semibold + tiny 11 sub-line + optional `RelativeSizeBar`
 under the name / trailing size in `SizeText` (13.5 pt semibold white-0.82,
 monospaced digits; `emphasized` white on the largest row — the emphasized
-treatment is scoped to Smart Scan category rows). Nested detail rows
+treatment is scoped to System Junk category rows). Nested detail rows
 (inspector items, uninstall leftovers) intentionally use the lighter 11–13 pt
 sub/tiny sizes so the top-level rows keep the visual weight. Focused row:
 border rgba(150,130,255,.55) + soft purple outer glow.
 
-**Inspector split (Smart Scan results)** — left: category rows; right: 320 pt
+**Inspector split (System Junk results)** — left: category rows; right: 320 pt
 glass inspector panel for the focused category (title, description, item list
 with checkboxes). Mirrors ref-3d. Required left-column content above the
 category rows: the selection summary header (30 pt bold `selectedBytes` hero
@@ -129,7 +129,7 @@ muted summary / CTACircle("Scan Again").
 
 Glass strip (white 0.045 fill, right hairline). 44 pt top clearance for real
 traffic lights. Items: 14 pt gradient dot + 12.5 pt label; selected = white
-0.13 rounded-8 fill. Order: Smart Scan (dot #6FD3FF→#8F5BFF) · CLEANUP header
+0.13 rounded-8 fill. Order: System Junk (dot #6FA8FF→#3E62D9) · CLEANUP header
 · Large & Old Files (#5BE0C8→#1FA88F) · PROTECTION · Privacy (#FF8FD0→#C04AE0)
 · APPLICATIONS · Uninstaller (#FFC37B→#FF7A4D). Section headers 9.5 pt bold
 white-0.32 tracking 1.3 uppercase. Footer: real disk usage — "Macintosh HD"
