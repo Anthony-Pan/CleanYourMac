@@ -12,13 +12,16 @@ struct CategoryStyle {
     var gradient: LinearGradient { LinearGradient(colors: [a, b], startPoint: .topLeading, endPoint: .bottomTrailing) }
     var glow: Color { a }
 
+    // Warm, desaturated tones that harmonize with the Onyx champagne accent —
+    // still distinct enough for the space-breakdown legend, but none of them the
+    // blue/violet/pink neon of the old palette.
     static func forID(_ id: String) -> CategoryStyle {
         switch id {
-        case "user-caches":        return .init(symbol: "internaldrive.fill", a: Color(hex: 0x22E0C8), b: Color(hex: 0x2A6BF5))
-        case "dev-tool-caches":    return .init(symbol: "shippingbox.fill", a: Color(hex: 0x6A7BFF), b: Color(hex: 0x8B3DF5))
-        case "xcode-derived-data": return .init(symbol: "hammer.fill", a: Color(hex: 0xFFB65C), b: Color(hex: 0xFF5E9C))
-        case "app-logs":           return .init(symbol: "doc.text.fill", a: Color(hex: 0x43E27D), b: Color(hex: 0x17B0A0))
-        default:                   return .init(symbol: "folder.fill", a: Color(hex: 0x8A8FA8), b: Color(hex: 0x565A70))
+        case "user-caches":        return .init(symbol: "internaldrive.fill", a: Color(hex: 0xD8C49A), b: Color(hex: 0xB79E72)) // champagne
+        case "dev-tool-caches":    return .init(symbol: "shippingbox.fill", a: Color(hex: 0xCE9A78), b: Color(hex: 0xA66B4E))    // clay
+        case "xcode-derived-data": return .init(symbol: "hammer.fill", a: Color(hex: 0xC79191), b: Color(hex: 0x9E6767))         // warm rose
+        case "app-logs":           return .init(symbol: "doc.text.fill", a: Color(hex: 0xA9AB80), b: Color(hex: 0x7B7D54))       // olive
+        default:                   return .init(symbol: "folder.fill", a: Color(hex: 0x9A928A), b: Color(hex: 0x655F59))         // warm grey
         }
     }
 }

@@ -27,11 +27,12 @@ enum AppSection: String, CaseIterable, Identifiable {
     var dotGradient: LinearGradient {
         let colors: [Color]
         switch self {
-        case .smartScan:   colors = [Color(hex: 0x6FD3FF), Color(hex: 0x8F5BFF)]
-        case .systemJunk:  colors = [Color(hex: 0x6FA8FF), Color(hex: 0x3E62D9)]
-        case .largeFiles:  colors = [Color(hex: 0x5BE0C8), Color(hex: 0x1FA88F)]
-        case .privacy:     colors = [Color(hex: 0xFF8FD0), Color(hex: 0xC04AE0)]
-        case .uninstaller: colors = [Color(hex: 0xFFC37B), Color(hex: 0xFF7A4D)]
+        // Warm, desaturated Onyx-harmonized dots (was blue/teal/pink/orange neon).
+        case .smartScan:   colors = [Color(hex: 0xD8C49A), Color(hex: 0xB79E72)] // champagne
+        case .systemJunk:  colors = [Color(hex: 0xD8C49A), Color(hex: 0xB79E72)] // champagne
+        case .largeFiles:  colors = [Color(hex: 0x8FB0A0), Color(hex: 0x5C8375)] // muted teal
+        case .privacy:     colors = [Color(hex: 0xC79191), Color(hex: 0x9E6767)] // warm rose
+        case .uninstaller: colors = [Color(hex: 0xD4A66A), Color(hex: 0xB07C3A)] // amber
         }
         return LinearGradient(colors: colors, startPoint: .topLeading, endPoint: .bottomTrailing)
     }
