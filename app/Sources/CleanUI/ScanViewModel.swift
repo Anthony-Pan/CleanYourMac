@@ -128,10 +128,14 @@ final class ScanViewModel {
 
     private var scanTask: Task<Void, Never>?
 
-    /// Begin (or restart) a scan. Held as a task so it can be stopped.
-    func startScan() {
+    /// Begin (or restart) a scan. Held as a task so it can be stopped; returned
+    /// so an orchestrator (Smart Scan) can await completion.
+    @discardableResult
+    func startScan() -> Task<Void, Never> {
         scanTask?.cancel()
-        scanTask = Task { await runScan() }
+        let task = Task { await runScan() }
+        scanTask = task
+        return task
     }
 
     /// Stop an in-progress scan. Whatever was found so far is kept.

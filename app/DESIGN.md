@@ -61,6 +61,20 @@ button. Privacy uses a warmer aurora variant.
 bold white / sub 12.5 pt white-0.55 / CTACircle("Scan") / row of up to three
 StatCards (real data only — never invent numbers).
 
+**Smart Scan (dashboard)** — orchestrates the four module scans concurrently
+on the shared models; it owns no results and never cleans. Idle follows the
+generic idle pattern. Busy follows the busy pattern with a "FOUND SO FAR"
+byte counter (junk + privacy + large-file bytes as they land), SweepBar
+fraction = done areas ÷ 4, and one progress row per area (all four scan at
+once, so several rows may be active simultaneously). Results: hero found
+total (30 pt bold; "All clear" instead of a zero byte count) above a 2×2
+grid of module cards — 32 pt icon tile using the module's sidebar-dot
+gradient, name, 24 pt bold headline number, 11 pt sub-line (`SizePending`
+shimmer while app sizes stream) — each card a button that opens its module
+screen, already loaded. BottomBar: "N of 4 areas scanned · X found" +
+GhostButton("Rescan") only; the primary clean action intentionally lives in
+the module screens with their own confirmations.
+
 **Busy (scanning)** — centered: Orb(animating) with a "JUNK FOUND" slab
 caption + 32 pt bold byte counter overlaid in its center / 280 pt determinate
 SweepBar (fraction = done categories ÷ total, shimmer sweeps inside the filled
@@ -129,9 +143,10 @@ muted summary / CTACircle("Scan Again").
 
 Glass strip (white 0.045 fill, right hairline). 44 pt top clearance for real
 traffic lights. Items: 14 pt gradient dot + 12.5 pt label; selected = white
-0.13 rounded-8 fill. Order: System Junk (dot #6FA8FF→#3E62D9) · CLEANUP header
-· Large & Old Files (#5BE0C8→#1FA88F) · PROTECTION · Privacy (#FF8FD0→#C04AE0)
-· APPLICATIONS · Uninstaller (#FFC37B→#FF7A4D). Section headers 9.5 pt bold
+0.13 rounded-8 fill. Order: Smart Scan (dot #6FD3FF→#8F5BFF) · CLEANUP header
+· System Junk (#6FA8FF→#3E62D9) · Large & Old Files (#5BE0C8→#1FA88F)
+· PROTECTION · Privacy (#FF8FD0→#C04AE0) · APPLICATIONS · Uninstaller
+(#FFC37B→#FF7A4D). Section headers 9.5 pt bold
 white-0.32 tracking 1.3 uppercase. Footer: real disk usage — "Macintosh HD"
 11 pt semibold white-0.78, 5 pt gradient bar (#6FD3FF→#B06CFF), caption
 "X GB used of Y GB" 11 pt white-0.55 (sub tier — legible against the aurora)

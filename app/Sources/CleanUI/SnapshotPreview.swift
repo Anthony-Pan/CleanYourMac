@@ -6,7 +6,8 @@ import CleanCore
 /// what `RootView` would show — the module stage, the sidebar rail, and the
 /// actual module view — so the render is the design, not a copy of it.
 public enum SnapshotScreen: String, CaseIterable {
-    case systemJunkIdle, systemJunkResults, uninstaller, largeFiles, privacyIdle, privacyResults
+    case smartScanIdle, smartScanResults, systemJunkIdle, systemJunkResults,
+         uninstaller, largeFiles, privacyIdle, privacyResults
 
     /// The full window (stage + rail + module view) at a fixed design size.
     @MainActor
@@ -26,6 +27,7 @@ public enum SnapshotScreen: String, CaseIterable {
 
     private var section: AppSection {
         switch self {
+        case .smartScanIdle, .smartScanResults:   return .smartScan
         case .systemJunkIdle, .systemJunkResults: return .systemJunk
         case .uninstaller:                      return .uninstaller
         case .largeFiles:                       return .largeFiles
@@ -36,6 +38,21 @@ public enum SnapshotScreen: String, CaseIterable {
     @MainActor
     @ViewBuilder private var content: some View {
         switch self {
+        case .smartScanIdle:
+            SmartScanView(model: SmartScanViewModel(
+                junk: ScanViewModel(),
+                files: LargeFilesViewModel(),
+                privacy: PrivacyViewModel(),
+                apps: UninstallViewModel()),
+                selection: .constant(.smartScan))
+        case .smartScanResults:
+            SmartScanView(model: SmartScanViewModel(
+                mockJunk: ScanViewModel(mockGroups: Self.mockGroups(), expandFirst: false),
+                mockFiles: LargeFilesViewModel(mockFiles: Self.mockFiles()),
+                mockPrivacy: PrivacyViewModel(mockGroups: Self.mockPrivacyGroups(),
+                                              mockFindings: Self.mockFindings()),
+                mockApps: UninstallViewModel(mockApps: Self.mockApps())),
+                selection: .constant(.smartScan))
         case .systemJunkIdle:
             SystemJunkView(model: ScanViewModel())
         case .systemJunkResults:

@@ -9,10 +9,11 @@ struct Sidebar: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            item(.systemJunk)
+            item(.smartScan)
                 .padding(.top, 44)
 
             header("Cleanup")
+            item(.systemJunk)
             item(.largeFiles)
 
             header("Protection")

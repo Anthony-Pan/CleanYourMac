@@ -572,8 +572,9 @@ struct SystemJunkView: View {
 
 /// Progress capsule: determinate when `fraction` is given (fill grows with
 /// progress, shimmer sweeps inside the filled portion only), indeterminate
-/// otherwise (the original travelling gradient).
-private struct SweepBar: View {
+/// otherwise (the original travelling gradient). Shared with the Smart Scan
+/// dashboard's scanning screen.
+struct SweepBar: View {
     var fraction: Double? = nil
 
     @State private var sweep = false
