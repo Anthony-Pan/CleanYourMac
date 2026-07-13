@@ -50,37 +50,42 @@ struct Orb: View {
 
     var body: some View {
         ZStack {
-            // Halo glow
-            RadialGradient(colors: [Color(hex: 0x7896FF, alpha: 0.45),
-                                    Color(hex: 0xA05AFF, alpha: 0.25),
+            // Warm champagne halo (was blue/violet).
+            RadialGradient(colors: [Color(hex: Onyx.gold, alpha: 0.34),
+                                    Color(hex: Onyx.goldLo, alpha: 0.16),
                                     .clear],
                            center: .center, startRadius: 0, endRadius: size * 0.72)
                 .frame(width: size * 1.44, height: size * 1.44)
                 .blur(radius: 24)
 
-            // Body
+            // Body — a polished obsidian stone (the "Onyx"), warm specular
+            // highlight top-left fading to near-black.
             Circle()
-                .fill(RadialGradient(colors: [Color(hex: 0xBCD6FF),
-                                              Color(hex: 0x7FA0FF),
-                                              Color(hex: 0x8F5BFF),
-                                              Color(hex: 0x5A3AB8)],
+                .fill(RadialGradient(colors: [Color(hex: 0x9A938A),
+                                              Color(hex: 0x45433E),
+                                              Color(hex: 0x1B1A19),
+                                              Color(hex: 0x0A0A0B)],
                                      center: UnitPoint(x: 0.32, y: 0.28),
                                      startRadius: 0, endRadius: size * 0.72))
                 .frame(width: size * 0.72, height: size * 0.72)
                 .overlay( // top gloss
                     Circle().fill(
-                        LinearGradient(colors: [.white.opacity(0.45), .clear],
+                        LinearGradient(colors: [.white.opacity(0.35), .clear],
                                        startPoint: .top, endPoint: .center))
                         .frame(width: size * 0.52, height: size * 0.30)
                         .blur(radius: 6)
                         .offset(y: -size * 0.20)
                 )
-                .shadow(color: Color(hex: 0x3C1E8C, alpha: 0.6), radius: 30, y: 20)
+                .overlay( // thin champagne rim light
+                    Circle().strokeBorder(Color(hex: Onyx.gold, alpha: 0.25), lineWidth: 1)
+                        .frame(width: size * 0.72, height: size * 0.72)
+                )
+                .shadow(color: Color(hex: 0x000000, alpha: 0.55), radius: 30, y: 20)
                 .scaleEffect(animating && breathe ? 1.04 : 1)
 
-            satellite(Color(hex: 0xFFD6F2), Color(hex: 0xE05BBF), d: size * 0.15)
+            satellite(Color(hex: Onyx.goldHi), Color(hex: Onyx.goldLo), d: size * 0.15)
                 .offset(x: -size * 0.34, y: -size * 0.14)
-            satellite(Color(hex: 0xD6FFF2), Color(hex: 0x2FD4A0), d: size * 0.09)
+            satellite(Color(hex: 0xEDECE8), Color(hex: 0x9A968D), d: size * 0.09)
                 .offset(x: size * 0.33, y: size * 0.16)
         }
         .frame(width: size, height: size)
@@ -123,7 +128,7 @@ struct CTACircle: View {
 
                 Text(title)
                     .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(Palette.onAction)
                     .minimumScaleFactor(0.7)
                     .frame(width: 88)
             }
@@ -156,7 +161,7 @@ struct GradientButton: View {
         Button(action: action) {
             Text(title)
                 .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(.white)
+                .foregroundStyle(Palette.onAction)
                 .padding(.horizontal, 30)
                 .padding(.vertical, 10)
                 .background(
@@ -187,14 +192,14 @@ struct GhostButton: View {
         Button(action: action) {
             Text(title)
                 .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(.white)
+                .foregroundStyle(Palette.ink)
                 .padding(.horizontal, 24)
                 .padding(.vertical, 10)
                 .background(
                     RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .fill(.white.opacity(hover ? 0.14 : 0.10))
+                        .fill(Color(hex: Onyx.cream, alpha: hover ? 0.14 : 0.10))
                         .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous)
-                            .strokeBorder(.white.opacity(0.16), lineWidth: 1))
+                            .strokeBorder(Color(hex: Onyx.cream, alpha: 0.16), lineWidth: 1))
                 )
                 .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         }
@@ -241,13 +246,13 @@ struct GlassCheckbox: View {
                 .fill(state == .off ? AnyShapeStyle(Color.clear) : AnyShapeStyle(Palette.check))
                 .overlay(
                     RoundedRectangle(cornerRadius: 5, style: .continuous)
-                        .strokeBorder(.white.opacity(state == .off ? 0.30 : 0), lineWidth: 1.5)
+                        .strokeBorder(Color(hex: Onyx.cream, alpha: state == .off ? 0.30 : 0), lineWidth: 1.5)
                 )
                 .overlay {
                     if state != .off {
                         Image(systemName: state == .on ? "checkmark" : "minus")
                             .font(.system(size: 9, weight: .bold))
-                            .foregroundStyle(.white)
+                            .foregroundStyle(Palette.onAction)
                     }
                 }
                 .frame(width: 16, height: 16)
@@ -280,7 +285,7 @@ struct SizeText: View {
         Text(text)
             .font(.system(size: 13.5, weight: .semibold))
             .monospacedDigit()
-            .foregroundStyle(emphasized ? Color.white : Palette.ink2)
+            .foregroundStyle(emphasized ? Palette.ink : Palette.ink2)
     }
 }
 
@@ -338,7 +343,7 @@ struct TopBar<Trailing: View>: View {
         HStack(spacing: 14) {
             Text(title)
                 .font(.system(size: 19, weight: .bold))
-                .foregroundStyle(.white)
+                .foregroundStyle(Palette.ink)
             Spacer()
             trailing
         }
@@ -366,7 +371,7 @@ struct StatCard: View {
     let label: String
     let value: String
     var detail: String = ""
-    var valueColor: Color = .white
+    var valueColor: Color = Palette.ink
 
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
