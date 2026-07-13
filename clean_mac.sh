@@ -2,7 +2,7 @@
 
 # CleanMac - Advanced macOS System Cleanup Tool
 # Version: 2.5
-# Author: CleanYourMac Project (Created by a middle school student)
+# Author: Onyx (onyx-lab.com) — an open-source tool, created by a middle-school student
 # Description: Interactive macOS cleanup utility with comprehensive cleaning
 
 set -eo pipefail
@@ -147,7 +147,7 @@ get_text() {
             "auto_cleanup_complete") echo "自动清理完成！" ;;
             "total_space_freed") echo "总共释放空间" ;;
             "confirm_sensitive") echo "清理敏感位置" ;;
-            "thank_you") echo "感谢您使用 CleanMac！再见！" ;;
+            "thank_you") echo "感谢您使用 CleanMac！再见！ · An Onyx product" ;;
             "press_enter") echo "按回车键继续..." ;;
             "cleaning") echo "正在清理..." ;;
             "cleaned") echo "已清理" ;;
@@ -225,7 +225,7 @@ get_text() {
             "auto_cleanup_complete") echo "Auto cleanup completed!" ;;
             "total_space_freed") echo "Total space freed" ;;
             "confirm_sensitive") echo "Clean sensitive location" ;;
-            "thank_you") echo "Thank you for using CleanMac! Goodbye!" ;;
+            "thank_you") echo "Thank you for using CleanMac! Goodbye! · An Onyx product" ;;
             "press_enter") echo "Press Enter to continue..." ;;
             "cleaning") echo "Cleaning..." ;;
             "cleaned") echo "Cleaned" ;;
@@ -272,6 +272,7 @@ print_header() {
     printf "║ %s %-70s ║\n" "📊" "$(get_text "description")"
     echo "╚════════════════════════════════════════════════════════════════════════════════╝"
     echo -e "${NC}"
+    echo -e "${DIM}  ◈ An Onyx product · onyx-lab.com${NC}"
     echo ""
 }
 

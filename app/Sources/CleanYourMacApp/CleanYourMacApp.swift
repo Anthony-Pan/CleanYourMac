@@ -1,3 +1,12 @@
+//
+//  CleanYourMacApp.swift
+//  CleanYourMac — an open-source macOS cleanup app.
+//
+//  Built by Onyx (https://onyx-lab.com), the studio behind the app.
+//  Open source (MIT); originally created by a middle-school student.
+//  Contact: hello@onyx-lab.com  ·  ◈ An Onyx product
+//
+
 import SwiftUI
 import AppKit
 import CleanUI

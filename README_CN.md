@@ -205,6 +205,15 @@ CleanYourMac **绝不会**删除：
 
 本项目由一名初中生创建。感谢所有贡献者和用户的支持！
 
+## ◈ 由 Onyx 打造
+
+CleanYourMac 是 [Onyx](https://onyx-lab.com) 的作品 —— Onyx 是这款应用背后的独立工作室，专注打造 AI 原生的开源工具。本项目依然基于 MIT 许可证保持开源，它的起点也始终如一：由一名初中生创建，Onyx 只是帮助它继续走下去。
+
+- 🌐 工作室：[onyx-lab.com](https://onyx-lab.com)
+- 📧 联系方式：[hello@onyx-lab.com](mailto:hello@onyx-lab.com)
+
+*Intelligence, cut & polished.*
+
 ---
 
 **⚠️ 免责声明：** 请在使用前备份重要数据。虽然本工具设计为安全工具，但作者不对数据丢失承担责任。

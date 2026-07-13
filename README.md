@@ -280,6 +280,15 @@ If you encounter issues or have suggestions:
 
 This project was created by a middle school student. Thanks to all contributors and users for their support!
 
+## ◈ Built by Onyx
+
+CleanYourMac is an [Onyx](https://onyx-lab.com) product — Onyx is the independent studio behind the app, building AI-native, open-source tools. This project remains open source under the MIT License, and its origin story stands: it was created by a middle-school student. Onyx simply helps carry it forward.
+
+- 🌐 Studio: [onyx-lab.com](https://onyx-lab.com)
+- 📧 Contact: [hello@onyx-lab.com](mailto:hello@onyx-lab.com)
+
+*Intelligence, cut & polished.*
+
 ---
 
 **⚠️ Disclaimer:** Please backup important data before use. While this tool is designed to be safe, the author is not responsible for any data loss.

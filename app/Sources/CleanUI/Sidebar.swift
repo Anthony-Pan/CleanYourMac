@@ -26,6 +26,10 @@ struct Sidebar: View {
 
             DiskGauge()
                 .padding(.horizontal, 12)
+
+            OnyxFooter()
+                .padding(.horizontal, 12)
+                .padding(.top, 12)
         }
         .padding(.horizontal, 10)
         .padding(.bottom, 16)
@@ -95,6 +99,28 @@ private struct NavItem: View {
         .buttonStyle(.plain)
         .onHover { hover = $0 }
         .accessibilityLabel(section.title)
+    }
+}
+
+// MARK: - Onyx studio signature
+
+/// A quiet "An Onyx product" credit pinned to the foot of the sidebar: the thin
+/// gem mark plus muted text, tinted in the same champagne accent and secondary
+/// grey as the rest of the CleanUI palette (see `Theme.swift`).
+private struct OnyxFooter: View {
+    var body: some View {
+        HStack(spacing: 6) {
+            OnyxMark(lineWidth: 1)
+                .frame(width: 9, height: 12)
+                .foregroundStyle(Color(hex: Onyx.gold, alpha: 0.55))
+
+            Text("An Onyx product")
+                .font(.system(size: 9.5, weight: .medium))
+                .tracking(0.4)
+                .foregroundStyle(Palette.tiny)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("An Onyx product")
     }
 }
 
