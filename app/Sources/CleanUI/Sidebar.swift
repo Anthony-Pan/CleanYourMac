@@ -1,20 +1,26 @@
 import SwiftUI
 import CleanCore
 
-/// The 210 pt labeled glass sidebar from the mockup: gradient-dot nav items
-/// under uppercase section headers, real disk usage at the bottom. The window
-/// titlebar is hidden, so the top leaves clearance for the traffic lights.
+/// The 232 pt labeled glass sidebar: CleanMyMac-style nav items — a gradient
+/// icon tile plus title — grouped under uppercase section headers, real disk
+/// usage at the bottom. The window titlebar is hidden, so the top leaves
+/// clearance for the traffic lights.
 struct Sidebar: View {
     @Binding var selection: AppSection
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             item(.smartScan)
-                .padding(.top, 44)
+                .padding(.top, 42)
 
             header("Cleanup")
             item(.systemJunk)
-            item(.largeFiles)
+            item(.mailAttachments)
+            item(.trashBins)
+
+            header("Speed")
+            item(.optimization)
+            item(.maintenance)
 
             header("Protection")
             item(.privacy)
@@ -22,7 +28,11 @@ struct Sidebar: View {
             header("Applications")
             item(.uninstaller)
 
-            Spacer()
+            header("Files")
+            item(.largeFiles)
+            item(.spaceLens)
+
+            Spacer(minLength: 12)
 
             DiskGauge()
                 .padding(.horizontal, 12)
@@ -32,8 +42,8 @@ struct Sidebar: View {
                 .padding(.top, 12)
         }
         .padding(.horizontal, 10)
-        .padding(.bottom, 16)
-        .frame(width: 210)
+        .padding(.bottom, 14)
+        .frame(width: 232)
         .frame(maxHeight: .infinity)
         .background(.white.opacity(0.045))
         .overlay(alignment: .trailing) {
@@ -47,8 +57,8 @@ struct Sidebar: View {
             .tracking(1.3)
             .foregroundStyle(.white.opacity(0.32))
             .padding(.horizontal, 12)
-            .padding(.top, 15)
-            .padding(.bottom, 5)
+            .padding(.top, 13)
+            .padding(.bottom, 4)
     }
 
     private func item(_ section: AppSection) -> some View {
@@ -67,34 +77,40 @@ private struct NavItem: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 10) {
-                Circle()
+            HStack(spacing: 11) {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .fill(section.dotGradient)
-                    .frame(width: 14, height: 14)
-                    .shadow(color: .black.opacity(0.4), radius: 4, y: 2)
+                    .frame(width: 27, height: 27)
+                    .overlay(
+                        Image(systemName: section.symbol)
+                            .font(.system(size: 12.5, weight: .semibold))
+                            .foregroundStyle(Color(hex: Onyx.bg0, alpha: 0.82))
+                    )
+                    .shadow(color: .black.opacity(0.35), radius: 3, y: 1.5)
 
                 Text(section.title)
-                    .font(.system(size: 12.5, weight: .medium))
+                    .font(.system(size: 13, weight: .medium))
                     .foregroundStyle(selected ? .white : .white.opacity(0.72))
+                    .lineLimit(1)
 
                 Spacer(minLength: 0)
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
             .background(
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
                     .fill(.white.opacity(selected ? 0.13 : (hover ? 0.06 : 0)))
             )
             .overlay(alignment: .top) {
                 if selected {
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
                         .fill(LinearGradient(colors: [.white.opacity(0.10), .clear],
                                              startPoint: .top, endPoint: .bottom))
-                        .frame(height: 12)
+                        .frame(height: 14)
                         .padding(.horizontal, 1)
                 }
             }
-            .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         }
         .buttonStyle(.plain)
         .onHover { hover = $0 }
