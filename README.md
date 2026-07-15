@@ -68,6 +68,29 @@ what you no longer need.
   world-readable SSH private keys / AWS credentials / `~/.netrc`, and secrets
   possibly sitting in your shell history.
 
+**6. Mail Attachments** — Reclaims the local copies Apple Mail keeps of attachments
+you've opened or saved. The originals stay with the messages, so the copies are safe
+to remove — and they go to the Trash, recoverable like everything else.
+
+**7. Trash Bins** — Reviews what's sitting in your Trash, ranked by size, so you can
+empty just the big stuff. This is the one module where removal is genuinely
+permanent (the items were already deleted once), and the UI says so in plain words
+before you confirm.
+
+**8. Optimization** — A read-only review of what launches at startup: your launch
+agents, system-wide third-party agents, and daemons — with run-at-load and disabled
+flags, reveal-in-Finder, and a shortcut to the Login Items system settings. It never
+changes anything.
+
+**9. Maintenance** — Runs a fixed set of safe, no-sudo refreshers: flush the DNS
+cache, rebuild the Launch Services database (fixes duplicate "Open With" entries),
+reset the Quick Look thumbnail cache, and relaunch Finder or the Dock. Fixed
+commands with fixed arguments — never a shell, never your input.
+
+**10. Space Lens** — A read-only folder-size explorer: scan your home folder, see
+every file and folder ranked by size, and drill into subfolders with a breadcrumb
+trail. It only looks; it never deletes.
+
 ## Safety
 
 Safety isn't a checkbox here — it's the architecture. Four guardrails work together
@@ -87,7 +110,9 @@ so the app *physically cannot* delete the wrong thing:
   `/Users/me`.
 
 On top of that: everything moves to the **Trash** (reversible, not a permanent
-delete), and the app never removes passwords, autofill or saved cards, bookmarks,
+delete) — with one honest exception: the Trash Bins module, whose entire job is
+emptying the Trash, and which says "permanent, not recoverable" before you confirm.
+The app never removes passwords, autofill or saved cards, bookmarks,
 personal documents, photos, or keychain data. This model is honest and has been
 adversarially reviewed — because honesty is the brand.
 
