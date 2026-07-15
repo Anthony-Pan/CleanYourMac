@@ -7,7 +7,8 @@ import CleanCore
 /// actual module view — so the render is the design, not a copy of it.
 public enum SnapshotScreen: String, CaseIterable {
     case smartScanIdle, smartScanResults, systemJunkIdle, systemJunkResults,
-         uninstaller, largeFiles, privacyIdle, privacyResults
+         uninstaller, largeFiles, privacyIdle, privacyResults,
+         mailAttachments, trashBins, optimization, maintenance, spaceLens
 
     /// The full window (stage + rail + module view) at a fixed design size.
     @MainActor
@@ -32,6 +33,11 @@ public enum SnapshotScreen: String, CaseIterable {
         case .uninstaller:                      return .uninstaller
         case .largeFiles:                       return .largeFiles
         case .privacyIdle, .privacyResults:     return .privacy
+        case .mailAttachments:                  return .mailAttachments
+        case .trashBins:                        return .trashBins
+        case .optimization:                     return .optimization
+        case .maintenance:                      return .maintenance
+        case .spaceLens:                        return .spaceLens
         }
     }
 
@@ -69,6 +75,18 @@ public enum SnapshotScreen: String, CaseIterable {
             PrivacyView(model: PrivacyViewModel(
                 mockGroups: Self.mockPrivacyGroups(),
                 mockFindings: Self.mockFindings()))
+        case .mailAttachments:
+            MailAttachmentsView(model: MailAttachmentsViewModel(mockItems: Self.mockAttachments()))
+        case .trashBins:
+            TrashBinsView(model: TrashBinsViewModel(mockItems: Self.mockTrashItems()))
+        case .optimization:
+            OptimizationView(model: OptimizationViewModel(mockItems: Self.mockStartupItems()))
+        case .maintenance:
+            // The ready checklist is the module's home screen: the fixed task
+            // registry renders without touching disk or spawning processes.
+            MaintenanceView(model: MaintenanceViewModel())
+        case .spaceLens:
+            SpaceLensView(model: SpaceLensViewModel(mockEntries: Self.mockSpaceEntries()))
         }
     }
 
@@ -181,6 +199,81 @@ public enum SnapshotScreen: String, CaseIterable {
             app("Spotify", "com.spotify.client", "1.2.40", 386_000_000),
             app("Safari", "com.apple.Safari", "17.5", 15_000_000, system: true),
             app("zoom.us", "us.zoom.xos", "6.1.1", 158_000_000),
+        ]
+    }
+
+    private static func mockAttachments() -> [MailAttachment] {
+        func item(_ name: String, _ size: Int64, _ ageDays: Int) -> MailAttachment {
+            MailAttachment(
+                url: URL(fileURLWithPath: "/Users/you/Library/Containers/com.apple.mail/Data/Library/Mail Downloads/\(name)"),
+                sizeBytes: size,
+                modificationDate: Date(timeIntervalSince1970: 1_735_000_000 - Double(ageDays) * 86_400))
+        }
+        return [
+            item("Q3-board-deck-final.key", 284_000_000, 12),
+            item("contract-signed-scan.pdf", 96_000_000, 45),
+            item("team-offsite-photos.zip", 88_000_000, 90),
+            item("invoice-2024-118.pdf", 1_200_000, 7),
+            item("brand-logo-pack.sketch", 64_000_000, 200),
+        ]
+    }
+
+    private static func mockTrashItems() -> [TrashItem] {
+        func item(_ name: String, _ size: Int64, _ ageDays: Int, dir: Bool = false) -> TrashItem {
+            TrashItem(url: URL(fileURLWithPath: "/Users/you/.Trash/\(name)"),
+                      sizeBytes: size,
+                      modificationDate: Date(timeIntervalSince1970: 1_735_000_000 - Double(ageDays) * 86_400),
+                      isDirectory: dir)
+        }
+        return [
+            item("old-project-backup", 4_620_000_000, 30, dir: true),
+            item("Xcode_14.3.1.xip", 3_180_000_000, 120),
+            item("render-output-v2.mov", 1_450_000_000, 14),
+            item("node_modules", 820_000_000, 8, dir: true),
+            item("screenshot-archive", 96_000_000, 60, dir: true),
+        ]
+    }
+
+    private static func mockStartupItems() -> [StartupItem] {
+        func item(_ label: String, _ kind: StartupItem.Kind, _ exec: String,
+                  runAtLoad: Bool? = true, disabled: Bool? = nil) -> StartupItem {
+            let dir = switch kind {
+            case .userAgent: "/Users/you/Library/LaunchAgents"
+            case .systemAgent: "/Library/LaunchAgents"
+            case .systemDaemon: "/Library/LaunchDaemons"
+            }
+            return StartupItem(url: URL(fileURLWithPath: "\(dir)/\(label).plist"),
+                               label: label, kind: kind, executable: exec,
+                               runAtLoad: runAtLoad, disabled: disabled, isApple: false)
+        }
+        return [
+            item("com.docker.vmnetd", .systemDaemon, "/Library/PrivilegedHelperTools/com.docker.vmnetd"),
+            item("com.google.keystone.agent", .userAgent,
+                 "/Users/you/Library/Google/GoogleSoftwareUpdate/GoogleSoftwareUpdate.bundle/Contents/Resources/GoogleSoftwareUpdateAgent.app/Contents/MacOS/GoogleSoftwareUpdateAgent"),
+            item("com.dropbox.DropboxMacUpdate.agent", .userAgent,
+                 "/Library/Dropbox/DropboxMacUpdate.app/Contents/MacOS/DropboxMacUpdate", disabled: false),
+            item("com.microsoft.update.agent", .systemAgent,
+                 "/Library/Application Support/Microsoft/MAU2.0/Microsoft AutoUpdate.app/Contents/MacOS/Microsoft Update Assistant"),
+            item("us.zoom.ZoomDaemon", .systemDaemon, "/Library/PrivilegedHelperTools/us.zoom.ZoomDaemon",
+                 runAtLoad: nil, disabled: true),
+        ]
+    }
+
+    private static func mockSpaceEntries() -> [SpaceLensEntry] {
+        func entry(_ name: String, _ size: Int64, dir: Bool = true,
+                   package: Bool = false, items: Int? = nil) -> SpaceLensEntry {
+            SpaceLensEntry(url: URL(fileURLWithPath: "/Users/you/\(name)"),
+                           name: name, sizeBytes: size, isDirectory: dir,
+                           isPackage: package, itemCount: items)
+        }
+        return [
+            entry("Library", 84_300_000_000, items: 412_882),
+            entry("Movies", 61_800_000_000, items: 214),
+            entry("Developer", 33_500_000_000, items: 96_410),
+            entry("Downloads", 18_100_000_000, items: 1_204),
+            entry("Photos Library.photoslibrary", 12_400_000_000, package: true),
+            entry("Documents", 6_900_000_000, items: 8_812),
+            entry("bigquery-export.csv", 2_100_000_000, dir: false),
         ]
     }
 
