@@ -7,7 +7,7 @@ import CleanCore
 /// Trash. The originals stay with their messages, so the copies are safe to
 /// remove.
 struct MailAttachmentsView: View {
-    let model: MailAttachmentsViewModel
+    @Bindable var model: MailAttachmentsViewModel
     @State private var showConfirm = false
 
     init(model: MailAttachmentsViewModel) { self.model = model }
@@ -200,8 +200,13 @@ struct MailAttachmentsView: View {
             } else {
                 VStack(alignment: .leading, spacing: 14) {
                     summaryHeader
+                    filterBar
                     if model.accessDenied { accessBanner }
-                    attachmentList
+                    if model.visibleAttachments.isEmpty {
+                        filteredEmptyState
+                    } else {
+                        attachmentList
+                    }
                 }
                 .frame(maxHeight: .infinity)
                 .padding(.horizontal, 26)
@@ -211,6 +216,46 @@ struct MailAttachmentsView: View {
                 bottomBar
             }
         }
+    }
+
+    // MARK: - Filter bar (in-memory projections — never re-hits the disk)
+
+    private var filterBar: some View {
+        HStack(spacing: 10) {
+            searchField
+            SegmentedChips(selection: $model.sizeFilter,
+                           options: MailAttachmentsViewModel.SizeFilter.allCases,
+                           label: \.label)
+            Spacer(minLength: 0)
+            SegmentedChips(selection: $model.sort,
+                           options: MailAttachmentsViewModel.SortOrder.allCases,
+                           label: \.label)
+        }
+    }
+
+    private var searchField: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "magnifyingglass")
+                .font(.system(size: 11))
+                .foregroundStyle(Palette.sub)
+            TextField("Search attachments", text: $model.searchText)
+                .textFieldStyle(.plain)
+                .font(.system(size: 12))
+                .foregroundStyle(.white)
+                .frame(width: 170)
+            if !model.searchText.isEmpty {
+                Button { model.searchText = "" } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 11))
+                        .foregroundStyle(Palette.sub)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, 10).padding(.vertical, 6)
+        .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(Palette.glassFill))
+        .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous)
+            .strokeBorder(Palette.glassBorder, lineWidth: 1))
     }
 
     /// Hero total: what is currently selected, live — the same number the
@@ -235,12 +280,13 @@ struct MailAttachmentsView: View {
         ScrollView {
             LazyVStack(spacing: 8) {
                 selectAllRow
-                ForEach(model.attachments) { attachment in
+                ForEach(model.visibleAttachments) { attachment in
                     MailAttachmentRow(
                         attachment: attachment,
                         selected: model.isSelected(attachment.id),
-                        maxBytes: maxBytes,
-                        onToggle: { model.toggle(attachment.id) }
+                        maxBytes: maxVisibleBytes,
+                        onToggle: { model.toggle(attachment.id) },
+                        onReveal: { model.reveal(attachment) }
                     )
                 }
             }
@@ -248,21 +294,22 @@ struct MailAttachmentsView: View {
         }
     }
 
-    /// Biggest listed file — the shared denominator for every row's size bar.
-    private var maxBytes: Int64 {
-        model.attachments.first?.sizeBytes ?? 0
+    /// Biggest visible file — the shared denominator for every row's size bar.
+    private var maxVisibleBytes: Int64 {
+        model.visibleAttachments.map(\.sizeBytes).max() ?? 0
     }
 
     private var selectAllRow: some View {
-        Button { model.toggleAll() } label: {
+        Button { model.toggleAllVisible() } label: {
             HStack(spacing: 12) {
-                GlassCheckbox(state: model.selectAllState) { model.toggleAll() }
-                Text(model.allSelected ? "Deselect all" : "Select all")
+                GlassCheckbox(state: model.selectAllState) { model.toggleAllVisible() }
+                Text(selectAllTitle)
                     .font(.system(size: 12.5, weight: .medium))
                     .foregroundStyle(Palette.ink2)
                 Spacer()
-                Text("\(model.attachments.count) files · \(ByteFormat.human(model.totalBytes))")
+                Text(listSummary)
                     .font(.system(size: 11))
+                    .monospacedDigit()
                     .foregroundStyle(Palette.tiny)
             }
             .padding(.vertical, 9).padding(.horizontal, 14)
@@ -272,11 +319,37 @@ struct MailAttachmentsView: View {
         .glassCard(radius: 14)
     }
 
+    /// "Shown" only appears while filters actually hide something.
+    private var selectAllTitle: String {
+        if model.isFiltering {
+            return model.allVisibleSelected ? "Deselect all shown" : "Select all shown"
+        }
+        return model.allVisibleSelected ? "Deselect all" : "Select all"
+    }
+
+    private var listSummary: String {
+        if model.isFiltering {
+            return "\(model.visibleAttachments.count) of \(model.attachments.count) files · \(ByteFormat.human(model.visibleBytes))"
+        }
+        return "\(model.attachments.count) files · \(ByteFormat.human(model.totalBytes))"
+    }
+
     private var bottomBar: some View {
         BottomBar {
-            Text("\(model.selectedCount) of \(model.attachments.count) files · \(ByteFormat.human(model.selectedBytes)) selected")
-                .font(.system(size: 12.5))
-                .foregroundStyle(Palette.sub)
+            VStack(alignment: .leading, spacing: 2) {
+                Text("\(model.selectedCount) of \(model.visibleAttachments.count) shown files · \(ByteFormat.human(model.selectedBytes)) selected")
+                    .font(.system(size: 12.5))
+                    .monospacedDigit()
+                    .foregroundStyle(Palette.sub)
+                // A selected-but-filtered-out row is excluded from the clean —
+                // say so instead of letting it vanish silently.
+                if model.hiddenSelectedCount > 0 {
+                    Text("\(model.hiddenSelectedCount) selected \(model.hiddenSelectedCount == 1 ? "file is" : "files are") hidden by filters and won't be cleaned")
+                        .font(.system(size: 11))
+                        .monospacedDigit()
+                        .foregroundStyle(PillTone.warn.text)
+                }
+            }
 
             Spacer()
 
@@ -316,6 +389,31 @@ struct MailAttachmentsView: View {
         }
         .padding(.horizontal, 12).padding(.vertical, 6)
         .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(PillTone.warn.fill))
+    }
+
+    /// Shown when results exist but every row is hidden by the current
+    /// filters. Explicit on purpose: hidden rows are never cleaned, so an
+    /// all-hidden list must not look like an empty Mail Downloads folder.
+    private var filteredEmptyState: some View {
+        VStack(spacing: 12) {
+            Spacer()
+            Image(systemName: "line.3.horizontal.decrease.circle")
+                .font(.system(size: 40))
+                .foregroundStyle(.white.opacity(0.5))
+            Text("No attachments match your filters")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(.white)
+            Text("\(model.attachments.count) files are hidden by the search or size filter. Hidden files are never cleaned.")
+                .font(.caption)
+                .monospacedDigit()
+                .foregroundStyle(Palette.sub)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 420)
+            GhostButton(title: "Clear Filters") { model.clearFilters() }
+                .padding(.top, 8)
+            Spacer()
+        }
+        .frame(maxWidth: .infinity)
     }
 
     // MARK: - Empty state (nothing found / access denied)
@@ -367,14 +465,49 @@ struct MailAttachmentsView: View {
     }
 }
 
+// MARK: - Segmented pill chips (same look as Large Files' filter tabs)
+
+private struct SegmentedChips<Option: Identifiable & Equatable>: View {
+    @Binding var selection: Option
+    let options: [Option]
+    let label: (Option) -> String
+
+    var body: some View {
+        HStack(spacing: 2) {
+            ForEach(options) { option in
+                let on = option == selection
+                Button { selection = option } label: {
+                    Text(label(option))
+                        .font(.system(size: 12, weight: on ? .semibold : .regular))
+                        .foregroundStyle(on ? Color.white : Color.white.opacity(0.6))
+                        .padding(.horizontal, 10).padding(.vertical, 5)
+                        .background(
+                            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                .fill(on ? Color.white.opacity(0.16) : Color.clear)
+                        )
+                        .contentShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(3)
+        .background(RoundedRectangle(cornerRadius: 9, style: .continuous).fill(Palette.glassFill))
+        .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous)
+            .strokeBorder(Palette.glassBorder, lineWidth: 1))
+    }
+}
+
 // MARK: - One attachment row (its own glass card)
 
 private struct MailAttachmentRow: View {
     let attachment: MailAttachment
     let selected: Bool
-    /// Biggest listed file — denominator for the relative size bar.
+    /// Biggest visible file — denominator for the relative size bar.
     let maxBytes: Int64
     let onToggle: () -> Void
+    let onReveal: () -> Void
+
+    @State private var hovering = false
 
     var body: some View {
         HStack(spacing: 12) {
@@ -413,19 +546,28 @@ private struct MailAttachmentRow: View {
                 }
             }
 
-            Button {
-                NSWorkspace.shared.activateFileViewerSelecting([attachment.url])
-            } label: {
+            // Reveal is hover-only to keep rows quiet; the context menu
+            // offers the same action for discoverability.
+            Button(action: onReveal) {
                 Image(systemName: "magnifyingglass")
                     .font(.system(size: 12))
                     .foregroundStyle(Palette.sub)
             }
             .buttonStyle(.plain)
             .help("Reveal in Finder")
+            .opacity(hovering ? 1 : 0)
         }
         .padding(.vertical, 9)
         .padding(.horizontal, 14)
         .contentShape(Rectangle())
         .glassCard(radius: 14)
+        .onHover { hovering = $0 }
+        .contextMenu {
+            Button("Reveal in Finder", action: onReveal)
+            Button("Copy Path") {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString(attachment.path, forType: .string)
+            }
+        }
     }
 }

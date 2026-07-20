@@ -8,7 +8,8 @@ import CleanCore
 public enum SnapshotScreen: String, CaseIterable {
     case smartScanIdle, smartScanResults, systemJunkIdle, systemJunkResults,
          uninstaller, largeFiles, privacyIdle, privacyResults,
-         mailAttachments, trashBins, optimization, maintenance, spaceLens
+         mailAttachments, mailAttachmentsFiltered, trashBins, optimization,
+         maintenance, spaceLens
 
     /// The full window (stage + rail + module view) at a fixed design size.
     @MainActor
@@ -33,7 +34,8 @@ public enum SnapshotScreen: String, CaseIterable {
         case .uninstaller:                      return .uninstaller
         case .largeFiles:                       return .largeFiles
         case .privacyIdle, .privacyResults:     return .privacy
-        case .mailAttachments:                  return .mailAttachments
+        case .mailAttachments,
+             .mailAttachmentsFiltered:          return .mailAttachments
         case .trashBins:                        return .trashBins
         case .optimization:                     return .optimization
         case .maintenance:                      return .maintenance
@@ -77,6 +79,10 @@ public enum SnapshotScreen: String, CaseIterable {
                 mockFindings: Self.mockFindings()))
         case .mailAttachments:
             MailAttachmentsView(model: MailAttachmentsViewModel(mockItems: Self.mockAttachments()))
+        case .mailAttachmentsFiltered:
+            // Active ≥ 10 MB chip + date sort: one selected row is hidden by
+            // the filter, so the honest "won't be cleaned" footer note shows.
+            MailAttachmentsView(model: Self.filteredMailModel())
         case .trashBins:
             // Multi-bin state: the user's Trash, a volume bin with items,
             // and an inaccessible bin surfacing the Full Disk Access hint.
@@ -203,6 +209,16 @@ public enum SnapshotScreen: String, CaseIterable {
             app("Safari", "com.apple.Safari", "17.5", 15_000_000, system: true),
             app("zoom.us", "us.zoom.xos", "6.1.1", 158_000_000),
         ]
+    }
+
+    /// The standard mock results with the ≥ 10 MB size filter and date sort
+    /// applied — the 1.2 MB invoice stays selected but hidden, exercising the
+    /// visible-scoped totals and the hidden-selection footer note.
+    @MainActor private static func filteredMailModel() -> MailAttachmentsViewModel {
+        let model = MailAttachmentsViewModel(mockItems: mockAttachments())
+        model.sizeFilter = .mb10
+        model.sort = .date
+        return model
     }
 
     private static func mockAttachments() -> [MailAttachment] {
