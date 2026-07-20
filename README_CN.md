@@ -13,6 +13,27 @@ CleanYourMac 是 CleanMyMac 的开源替代品，作为一个真正的原生 Swi
 
 > *与 MacPaw 无任何关联。“CleanMyMac 开源替代品”仅作为名义参照。*
 
+## 安装
+
+从 [Releases](https://github.com/Anthony-Pan/CleanYourMac/releases) 下载最新版本：
+
+- **`CleanYourMac-<版本号>.pkg`**（推荐）— 标准 macOS 安装器，自动安装到「应用程序」文件夹。
+- **`CleanYourMac-<版本号>.dmg`** — 经典的拖入 Applications 磁盘映像。
+
+系统要求：macOS 14 (Sonoma) 或更高版本；通用二进制（Apple 芯片 + Intel）。
+
+> 本项目为 ad-hoc 签名的开源构建（无付费 Apple 开发者证书），首次启动时 macOS
+> 会要求确认：前往「**系统设置 → 隐私与安全性**」，点击「**仍要打开**」。
+> 可通过 Release 中的 `SHA256SUMS.txt` 校验下载文件。
+
+**从源码构建**（需要 Xcode 15+）：
+
+```bash
+git clone https://github.com/Anthony-Pan/CleanYourMac.git
+cd CleanYourMac/app
+./release.sh   # → dist/CleanYourMac-<版本号>.{dmg,pkg}
+```
+
 ## 为什么选择 CleanYourMac
 
 - **开源且免费 — 无订阅费。** 基于 MIT 许可证且完全免费，没有账户，也没有烦人的推销。阅读代码、Fork 它、信任它——无需为无法审查的清理软件支付每年约 40 美元的订阅费。

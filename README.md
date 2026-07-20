@@ -20,6 +20,29 @@ forever: no subscription, no account, no upsells.
 > *Not affiliated with MacPaw. "Open-source alternative to CleanMyMac" is a
 > nominative reference only.*
 
+## Install
+
+Download the latest version from [Releases](https://github.com/Anthony-Pan/CleanYourMac/releases):
+
+- **`CleanYourMac-<version>.pkg`** *(recommended)* — a standard macOS installer
+  that puts CleanYourMac in /Applications.
+- **`CleanYourMac-<version>.dmg`** — classic drag-to-Applications disk image.
+
+Requires macOS 14 (Sonoma) or later; universal binary (Apple silicon + Intel).
+
+> This is an ad-hoc-signed open-source build (no paid Apple Developer ID), so
+> macOS will ask you to confirm the first launch: **System Settings → Privacy &
+> Security → Open Anyway**. You can verify your download against the release's
+> `SHA256SUMS.txt`.
+
+**Build from source** (Xcode 15+):
+
+```bash
+git clone https://github.com/Anthony-Pan/CleanYourMac.git
+cd CleanYourMac/app
+./release.sh   # → dist/CleanYourMac-<version>.{dmg,pkg}
+```
+
 ## Why CleanYourMac
 
 - **Open source & free — no subscription.** MIT-licensed and genuinely free, with no
