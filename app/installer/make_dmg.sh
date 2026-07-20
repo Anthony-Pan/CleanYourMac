@@ -5,10 +5,12 @@
 #
 # Usage: make_dmg.sh <path/to/CleanYourMac.app> <version> <out.dmg>
 #
-# Finder layout comes from dmg_template.DS_Store. If the template is missing,
-# the layout is set once via Finder scripting (needs a logged-in session) and
-# the resulting .DS_Store is saved back next to this script — commit it so
-# later builds are deterministic and headless.
+# Finder layout comes from dmg_template.DS_Store. The template bakes in the
+# volume name "CleanYourMac" and the background path .background/background.png —
+# regenerate it (delete the file and re-run in a logged-in session) if either
+# changes. When the template is missing, the layout is set once via Finder
+# scripting and the resulting .DS_Store is saved back next to this script —
+# commit it so later builds are deterministic and headless.
 
 set -euo pipefail
 
@@ -23,7 +25,15 @@ VOLNAME="CleanYourMac"
 STAGE="$DIST/dmg-stage"
 RW="$DIST/dmg-rw.dmg"
 TEMPLATE="$HERE/dmg_template.DS_Store"
-MOUNT="/Volumes/$VOLNAME"
+
+# A pre-existing volume with our name would shadow the styling path (which
+# addresses the disk by name) and shift new mounts to "CleanYourMac 1".
+if [[ -d "/Volumes/$VOLNAME" ]]; then
+    hdiutil detach "/Volumes/$VOLNAME" -quiet || {
+        echo "ERROR: a volume named '$VOLNAME' is mounted and busy — eject it and retry" >&2
+        exit 1
+    }
+fi
 
 echo "==> Rendering DMG background"
 swift "$HERE/render_assets.swift" dmg "$DIST/dmg_background.png"
@@ -43,15 +53,35 @@ fi
 
 echo "==> Creating writable image"
 rm -f "$RW" "$OUT"
-if [[ -d "$MOUNT" ]]; then
-    hdiutil detach "$MOUNT" -quiet || true
-fi
 hdiutil create -volname "$VOLNAME" -srcfolder "$STAGE" -fs HFS+ -format UDRW -ov "$RW" >/dev/null
-hdiutil attach "$RW" >/dev/null
-trap 'hdiutil detach "$MOUNT" -quiet 2>/dev/null || true' EXIT
+
+# Finder and Spotlight routinely hold fresh volumes busy for a few seconds.
+detach_retry() {
+    local mnt="$1" i
+    for i in 1 2 3 4 5; do
+        if hdiutil detach "$mnt" -quiet 2>/dev/null; then return 0; fi
+        sleep 2
+    done
+    hdiutil detach "$mnt" -force -quiet
+}
+
+if [[ -f "$TEMPLATE" ]]; then
+    # Headless path: private mountpoint, invisible to Finder/Spotlight.
+    MOUNT="$DIST/dmg-mnt"
+    rm -rf "$MOUNT"
+    mkdir -p "$MOUNT"
+    hdiutil attach "$RW" -nobrowse -mountpoint "$MOUNT" >/dev/null
+else
+    # First-run styling path: Finder scripting needs a browsable disk.
+    MOUNT="/Volumes/$VOLNAME"
+    hdiutil attach "$RW" >/dev/null
+fi
+trap 'detach_retry "$MOUNT" 2>/dev/null || true' EXIT
 
 if [[ ! -f "$TEMPLATE" ]]; then
     echo "==> Styling Finder window (first run — saving reusable template)"
+    # Window bounds are content 660x400 + 28pt title bar, matching the
+    # background image exactly.
     osascript <<OSA
 tell application "Finder"
     tell disk "$VOLNAME"
@@ -59,7 +89,7 @@ tell application "Finder"
         set current view of container window to icon view
         set toolbar visible of container window to false
         set statusbar visible of container window to false
-        set the bounds of container window to {200, 120, 860, 560}
+        set the bounds of container window to {200, 120, 860, 548}
         set viewOptions to the icon view options of container window
         set arrangement of viewOptions to not arranged
         set icon size of viewOptions to 128
@@ -73,29 +103,37 @@ tell application "Finder"
     end tell
 end tell
 OSA
-    sync
-    sleep 2
-    if [[ -f "$MOUNT/.DS_Store" ]]; then
-        cp "$MOUNT/.DS_Store" "$TEMPLATE"
-        echo "    Saved layout template: $TEMPLATE (commit this file)"
-    else
-        echo "    WARNING: Finder produced no .DS_Store — DMG will use default layout" >&2
+    # Finder flushes .DS_Store asynchronously — poll instead of a fixed sleep.
+    DS_OK=""
+    for _ in $(seq 30); do
+        sync
+        if [[ -f "$MOUNT/.DS_Store" ]]; then DS_OK=1; break; fi
+        sleep 1
+    done
+    if [[ -z "$DS_OK" ]]; then
+        echo "ERROR: Finder never wrote .DS_Store — refusing to ship an unstyled DMG" >&2
+        exit 1
     fi
+    sleep 1
+    cp "$MOUNT/.DS_Store" "$TEMPLATE"
+    echo "    Saved layout template: $TEMPLATE (commit this file)"
 fi
 
 # Flag the volume root so Finder uses .VolumeIcon.icns.
 SETFILE="$(xcrun -f SetFile 2>/dev/null || true)"
 if [[ -n "$SETFILE" && -f "$MOUNT/.VolumeIcon.icns" ]]; then
-    "$SETFILE" -a C "$MOUNT" || true
+    "$SETFILE" -a C "$MOUNT" || echo "WARNING: SetFile failed — no custom volume icon" >&2
+elif [[ -f "$MOUNT/.VolumeIcon.icns" ]]; then
+    echo "WARNING: SetFile not found (needs Xcode CLT) — no custom volume icon" >&2
 fi
 
 sync
-hdiutil detach "$MOUNT" -quiet
-trap - EXIT
+detach_retry "$MOUNT"
 
 echo "==> Compressing"
 hdiutil convert "$RW" -format UDZO -imagekey zlib-level=9 -o "$OUT" >/dev/null
+trap - EXIT
 rm -f "$RW"
-rm -rf "$STAGE"
+rm -rf "$STAGE" "$DIST/dmg-mnt"
 
 echo "✅ DMG: $OUT"

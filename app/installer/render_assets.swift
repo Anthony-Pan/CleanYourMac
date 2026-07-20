@@ -17,7 +17,7 @@ let faint = NSColor(srgbRed: 0x6A / 255.0, green: 0x6A / 255.0, blue: 0x70 / 255
 /// Bitmap whose pixel grid is `scale`x the point size, with DPI metadata set so
 /// Finder / Installer draw it at the intended point size on Retina displays.
 func makeBitmap(width: Int, height: Int, scale: Int) -> NSBitmapImageRep {
-    guard let rep = NSBitmapImageRep(
+    guard let base = NSBitmapImageRep(
         bitmapDataPlanes: nil,
         pixelsWide: width * scale, pixelsHigh: height * scale,
         bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
@@ -25,6 +25,12 @@ func makeBitmap(width: Int, height: Int, scale: Int) -> NSBitmapImageRep {
     ) else {
         fatalError("could not allocate bitmap")
     }
+    // Tag as sRGB so the brand colors survive without color management.
+    guard let rep = base.retagging(with: .sRGB) else {
+        fatalError("could not retag bitmap as sRGB")
+    }
+    // INVARIANT: size must be set before NSGraphicsContext(bitmapImageRep:) is
+    // created — the context derives its points-to-pixels scale from it.
     rep.size = NSSize(width: width, height: height)
     return rep
 }
@@ -70,30 +76,37 @@ func drawCentered(_ text: NSAttributedString, centerX: CGFloat, baselineY: CGFlo
 func renderDMGBackground(to path: String) {
     // The context's user space is in points; the 2x pixel grid is applied
     // automatically via the rep's DPI.
+    //
+    // The canvas is 2x the window's 660x400 content so that dragging the
+    // window larger keeps showing ink instead of Finder's default white —
+    // Finder anchors the background picture at the top-left, so the design
+    // lives in the top-left 660x400 region.
+    let canvasW: CGFloat = 1320
+    let canvasH: CGFloat = 800
     let w: CGFloat = 660
-    let h: CGFloat = 400
-    let rep = makeBitmap(width: 660, height: 400, scale: 2)
+    let yOff: CGFloat = canvasH - 400  // AppKit bottom-left origin → design strip is on top
+    let rep = makeBitmap(width: 1320, height: 800, scale: 2)
 
     draw(into: rep) {
         NSGradient(starting: inkRaised, ending: ink)?
-            .draw(in: NSRect(x: 0, y: 0, width: w, height: h), angle: -90)
+            .draw(in: NSRect(x: 0, y: 0, width: canvasW, height: canvasH), angle: -90)
 
         // Hairline accent along the top edge.
         champagne.withAlphaComponent(0.35).setFill()
-        NSRect(x: 0, y: h - 1, width: w, height: 1).fill()
+        NSRect(x: 0, y: canvasH - 1, width: canvasW, height: 1).fill()
 
         drawCentered(attributed("CleanYourMac", size: 26, weight: .semibold,
                                 color: champagne, tracking: 0.5),
-                     centerX: w / 2, baselineY: 338)
+                     centerX: w / 2, baselineY: yOff + 338)
         drawCentered(attributed("Drag the app into Applications to install", size: 13,
                                 weight: .regular, color: mist),
-                     centerX: w / 2, baselineY: 312)
+                     centerX: w / 2, baselineY: yOff + 312)
         drawCentered(attributed("将 CleanYourMac 拖入 Applications 完成安装", size: 12,
                                 weight: .regular, color: mist),
-                     centerX: w / 2, baselineY: 292)
+                     centerX: w / 2, baselineY: yOff + 292)
 
         // Arrow between the two icon slots (icons sit at Finder y=205, i.e. AppKit y=195).
-        let arrowY: CGFloat = 195
+        let arrowY: CGFloat = yOff + 195
         let start = NSPoint(x: 252, y: arrowY)
         let end = NSPoint(x: 404, y: arrowY)
         let line = NSBezierPath()
@@ -115,7 +128,7 @@ func renderDMGBackground(to path: String) {
 
         drawCentered(attributed("Open source · MIT License · Nothing is removed without your review",
                                 size: 10, weight: .regular, color: faint),
-                     centerX: w / 2, baselineY: 20)
+                     centerX: w / 2, baselineY: yOff + 20)
     }
 
     writePNG(rep, to: path)
@@ -131,7 +144,7 @@ func renderPKGBackground(dark: Bool, iconPath: String, to path: String) {
 
     draw(into: rep) {
         NSColor.clear.setFill()
-        NSRect(x: 0, y: 0, width: 620, height: 418).fill()
+        NSRect(x: 0, y: 0, width: 620, height: 418).fill(using: .copy)
 
         NSGraphicsContext.current?.imageInterpolation = .high
         icon.draw(in: NSRect(x: 28, y: 26, width: 84, height: 84),
@@ -165,7 +178,7 @@ func renderAppIcon(from sourcePath: String, to path: String) {
 
     draw(into: rep) {
         NSColor.clear.setFill()
-        NSRect(x: 0, y: 0, width: canvas, height: canvas).fill()
+        NSRect(x: 0, y: 0, width: canvas, height: canvas).fill(using: .copy)
         NSGraphicsContext.current?.imageInterpolation = .high
 
         let gridRect = NSRect(x: inset, y: inset, width: grid, height: grid)

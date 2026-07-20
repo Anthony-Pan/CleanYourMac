@@ -26,13 +26,13 @@ DIST="$ROOT/dist"
 APP="$DIST/$APP_NAME.app"
 
 echo "==> Building release binaries (universal)"
-if swift build -c release --arch arm64 --arch x86_64 --product "$EXECUTABLE" &&
-   swift build -c release --arch arm64 --arch x86_64 --product snapshot; then
+if swift build --package-path "$ROOT" -c release --arch arm64 --arch x86_64 --product "$EXECUTABLE" &&
+   swift build --package-path "$ROOT" -c release --arch arm64 --arch x86_64 --product snapshot; then
     BINDIR="$ROOT/.build/apple/Products/Release"
 else
     echo "    (universal build failed — falling back to native arch)"
-    swift build -c release --product "$EXECUTABLE"
-    swift build -c release --product snapshot
+    swift build --package-path "$ROOT" -c release --product "$EXECUTABLE"
+    swift build --package-path "$ROOT" -c release --product snapshot
     BINDIR="$ROOT/.build/release"
 fi
 BIN="$BINDIR/$EXECUTABLE"

@@ -24,8 +24,10 @@ WORK="$DIST/pkg-work"
 
 rm -rf "$WORK"
 mkdir -p "$WORK/root" "$WORK/resources"
-# Strip xattrs/ACLs/quarantine so the payload ships no AppleDouble (._*) files
-# and the installed app can never inherit a quarantine flag from the build host.
+# Strip xattrs/ACLs/quarantine so the installed app can never inherit a
+# quarantine flag from the build host. (SIP-protected com.apple.provenance
+# survives — the kernel re-applies it and pkgbuild archives it as benign
+# AppleDouble entries; every locally built pkg has these.)
 ditto --noextattr --noacl --noqtn "$APP" "$WORK/root/CleanYourMac.app"
 
 echo "==> Building component package"
@@ -50,7 +52,14 @@ fi
 swift "$HERE/render_assets.swift" pkg light "$WORK/resources/background.png" "$ICON_MASTER"
 swift "$HERE/render_assets.swift" pkg dark "$WORK/resources/background-dark.png" "$ICON_MASTER"
 sed "s/@VERSION@/$VERSION/g" "$HERE/resources/welcome.html" > "$WORK/resources/welcome.html"
-sed "s/@VERSION@/$VERSION/g" "$HERE/resources/conclusion.html" > "$WORK/resources/conclusion.html"
+# Signed releases don't need the Gatekeeper "Open Anyway" walkthrough.
+if [[ -n "${INSTALLER_IDENTITY:-}" ]]; then
+    sed "s/@VERSION@/$VERSION/g" "$HERE/resources/conclusion.html" \
+        | sed '/<!-- adhoc-note-start -->/,/<!-- adhoc-note-end -->/d' \
+        > "$WORK/resources/conclusion.html"
+else
+    sed "s/@VERSION@/$VERSION/g" "$HERE/resources/conclusion.html" > "$WORK/resources/conclusion.html"
+fi
 cp "$REPO/LICENSE" "$WORK/resources/license.txt"
 
 ARCHS="$(lipo -archs "$APP/Contents/MacOS/CleanYourMacApp" | tr ' ' ',')"
