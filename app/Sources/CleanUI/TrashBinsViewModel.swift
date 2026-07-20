@@ -13,8 +13,19 @@ final class TrashBinsViewModel {
         case idle, scanning, results, cleaning, done
     }
 
+    /// One bin and its scanned items, for per-bin grouping in the UI.
+    struct BinSection: Identifiable {
+        let bin: TrashBin
+        let items: [TrashItem]
+        var id: String { bin.id }
+        var totalBytes: Int64 { items.totalBytes }
+    }
+
     private(set) var phase: Phase = .idle
-    /// Top-level Trash items, largest first.
+    /// Every bin the last scan discovered — including inaccessible ones,
+    /// which the UI must surface rather than drop.
+    private(set) var bins: [TrashBin] = []
+    /// Items across every accessible bin, largest first.
     private(set) var items: [TrashItem] = []
     /// Item IDs (paths) currently selected for permanent removal.
     private(set) var selected: Set<String> = []
@@ -27,18 +38,20 @@ final class TrashBinsViewModel {
     private(set) var scannedBytes: Int64 = 0
     private(set) var foundCount = 0
 
-    /// Fixed declarative root, resolved once — the only location this module
-    /// ever deletes from. Never derived from the items being deleted.
-    private let trashRoot: URL
+    /// Declarative bin discovery: the fixed rule (user Trash + per-volume
+    /// `.Trashes/<uid>`) decides every root this module may delete from.
+    /// Never derived from the items being deleted.
+    private let discovery: TrashBinDiscovery
 
     init() {
-        trashRoot = TrashScanner.defaultTrashRoot()
+        discovery = TrashBinDiscovery()
     }
 
     /// Preloaded results state for design snapshots — zero disk access.
     /// Everything is selected, matching the default after a real scan.
-    init(mockItems: [TrashItem]) {
-        trashRoot = TrashScanner.defaultTrashRoot()
+    init(mockBins: [TrashBin], mockItems: [TrashItem]) {
+        discovery = TrashBinDiscovery()
+        bins = mockBins
         items = mockItems.sorted { $0.sizeBytes > $1.sizeBytes }
         selected = Set(mockItems.map(\.id))
         phase = .results
@@ -54,6 +67,20 @@ final class TrashBinsViewModel {
 
     var selectedCount: Int {
         items.filter { selected.contains($0.id) }.count
+    }
+
+    /// Bins in discovery order, each with its own items (still largest first
+    /// within the bin, because `items` is globally sorted).
+    var sections: [BinSection] {
+        bins.map { bin in
+            BinSection(bin: bin, items: items.filter { $0.binID == bin.id })
+        }
+    }
+
+    /// True when any bin exists that could not be listed — the UI must say
+    /// so instead of presenting totals as the whole story.
+    var hasInaccessibleBins: Bool {
+        bins.contains { !$0.isAccessible }
     }
 
     // MARK: - Selection
@@ -96,24 +123,34 @@ final class TrashBinsViewModel {
         scanTask?.cancel()
     }
 
+    /// What the scan streams back: the discovered bins first, then every
+    /// item as it is sized.
+    private enum ScanEvent: Sendable {
+        case bins([TrashBin])
+        case item(TrashItem)
+    }
+
     private func runScan() async {
         phase = .scanning
         wasCancelled = false
+        bins = []
         items = []
         selected = []
         lastReport = nil
         scannedBytes = 0
         foundCount = 0
 
-        let root = trashRoot
+        let discovery = self.discovery
 
-        // List and size the Trash off the main actor, streaming each item back
-        // so the live byte counter ticks up as folders are sized.
-        let stream = AsyncStream<TrashItem> { continuation in
+        // Discover bins and size every accessible one off the main actor,
+        // streaming each item back so the live byte counter ticks up.
+        let stream = AsyncStream<ScanEvent> { continuation in
             let producer = Task.detached(priority: .userInitiated) {
-                _ = TrashScanner(trashRoot: root).scan { item in
+                let found = discovery.discoverBins()
+                continuation.yield(.bins(found))
+                _ = TrashScanner.scanBins(found) { item in
                     if Task.isCancelled { return }
-                    continuation.yield(item)
+                    continuation.yield(.item(item))
                 }
                 continuation.finish()
             }
@@ -121,11 +158,16 @@ final class TrashBinsViewModel {
         }
 
         var collected: [TrashItem] = []
-        for await item in stream {
+        for await event in stream {
             if Task.isCancelled { break }
-            collected.append(item)
-            scannedBytes += item.sizeBytes
-            foundCount += 1
+            switch event {
+            case .bins(let found):
+                bins = found
+            case .item(let item):
+                collected.append(item)
+                scannedBytes += item.sizeBytes
+                foundCount += 1
+            }
         }
 
         items = collected.sorted { $0.sizeBytes > $1.sizeBytes }
@@ -136,7 +178,7 @@ final class TrashBinsViewModel {
         if Task.isCancelled {
             // Stopped early. Show whatever was sized so far, or return to the
             // start screen — never the empty-Trash screen, which would falsely
-            // claim the Trash is empty when the scan simply didn't finish.
+            // claim the bins are empty when the scan simply didn't finish.
             wasCancelled = true
             phase = items.isEmpty ? .idle : .results
         } else {
@@ -151,9 +193,11 @@ final class TrashBinsViewModel {
         guard !targets.isEmpty else { return }
         phase = .cleaning
 
-        let root = trashRoot
+        // Allowed roots are exactly the bins discovery's rule produced —
+        // fixed before anything was selected, never widened by the targets.
+        let roots = bins.map(\.root)
         let report = await Task.detached(priority: .userInitiated) {
-            TrashRemover(trashRoot: root).remove(targets)
+            TrashRemover(binRoots: roots).remove(targets)
         }.value
 
         lastReport = report

@@ -24,7 +24,13 @@ struct TrashBinsView: View {
             case .done:
                 doneView
             case .results:
-                if model.items.isEmpty { emptyView } else { resultsView }
+                // The all-empty screen is only honest when every bin could
+                // actually be read; an unreadable bin must stay on screen.
+                if model.items.isEmpty && !model.hasInaccessibleBins {
+                    emptyView
+                } else {
+                    resultsView
+                }
             }
         }
         .navigationTitle("Trash Bins")
@@ -68,8 +74,8 @@ struct TrashBinsView: View {
                          detail: "items here are already deleted once",
                          valueColor: PillTone.warn.text)
                 StatCard(label: "Scope",
-                         value: "User Trash",
-                         detail: "external-volume trashes not included")
+                         value: "All volumes",
+                         detail: "your Trash plus each volume's own bin")
             }
             .frame(maxWidth: 720)
             .padding(.horizontal, 26)
@@ -186,8 +192,11 @@ struct TrashBinsView: View {
         }
     }
 
-    // MARK: - Empty state (nothing in the Trash)
+    // MARK: - Empty state (every bin read, nothing found)
 
+    /// Shown only when every discovered bin was readable and empty — an
+    /// unreadable bin routes to the results list instead, where it is
+    /// surfaced explicitly.
     private var emptyView: some View {
         VStack(spacing: 0) {
             TopBar(title: "Trash Bins") { StatusPill(text: "Trash is empty", tone: .good) }
@@ -198,13 +207,16 @@ struct TrashBinsView: View {
                 .font(.system(size: 52))
                 .foregroundStyle(.white.opacity(0.65))
 
-            Text("Your Trash is empty")
+            Text(model.bins.count > 1 ? "All Trash bins are empty" : "Your Trash is empty")
                 .font(.system(size: 26, weight: .bold))
                 .foregroundStyle(.white)
                 .padding(.top, 18)
 
-            Text("Nothing is waiting here — no space left to reclaim.")
+            Text(model.bins.count > 1
+                 ? "Checked \(model.bins.count) bins — nothing is waiting, no space left to reclaim."
+                 : "Nothing is waiting here — no space left to reclaim.")
                 .font(.system(size: 12.5))
+                .monospacedDigit()
                 .foregroundStyle(Palette.sub)
                 .padding(.top, 6)
 
@@ -279,18 +291,96 @@ struct TrashBinsView: View {
         .padding(.bottom, 12)
     }
 
+    /// One section per discovered bin, in discovery order: the user's Trash
+    /// first, then each volume's bin. Inaccessible bins get an explicit
+    /// "can't read" row instead of vanishing; readable-but-empty bins say so.
     private var itemList: some View {
         ScrollView {
             LazyVStack(spacing: 8) {
                 selectAllRow
-                ForEach(model.items) { item in
-                    itemRow(item)
+                ForEach(model.sections) { section in
+                    binHeader(section)
+                    if !section.bin.isAccessible {
+                        inaccessibleBinRow
+                    } else if section.items.isEmpty {
+                        emptyBinRow
+                    } else {
+                        ForEach(section.items) { item in
+                            itemRow(item)
+                        }
+                    }
                 }
             }
             .padding(.horizontal, 26)
             .padding(.top, 2)
             .padding(.bottom, 16)
         }
+    }
+
+    /// Bin name plus its own honest tallies — or a warning when the bin
+    /// could not be read, so its absence from the totals is visible.
+    private func binHeader(_ section: TrashBinsViewModel.BinSection) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: section.bin.isUserTrash ? "trash.fill" : "externaldrive.fill")
+                .font(.system(size: 11))
+                .foregroundStyle(Palette.sub)
+            Text(section.bin.displayName)
+                .font(.system(size: 11.5, weight: .semibold))
+                .tracking(0.4)
+                .foregroundStyle(Palette.ink2)
+            Spacer()
+            if section.bin.isAccessible {
+                Text("\(section.items.count) items · \(ByteFormat.human(section.totalBytes))")
+                    .font(.system(size: 10.5))
+                    .monospacedDigit()
+                    .foregroundStyle(Palette.tiny)
+            } else {
+                StatusPill(text: "Can't read", tone: .warn)
+            }
+        }
+        .padding(.horizontal, 6)
+        .padding(.top, 10)
+    }
+
+    /// Surfaced in place of the bin's items when its directory exists but
+    /// cannot be listed — never silently dropped, and never counted as empty.
+    private var inaccessibleBinRow: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "lock.fill")
+                .font(.system(size: 15))
+                .foregroundStyle(PillTone.warn.text)
+                .frame(width: 26)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("This bin can't be read")
+                    .font(.system(size: 13.5, weight: .semibold))
+                    .foregroundStyle(.white)
+                Text("Its contents are not included in any total. Granting Full Disk Access in System Settings → Privacy & Security may be needed.")
+                    .font(.system(size: 11))
+                    .foregroundStyle(Palette.sub)
+            }
+
+            Spacer()
+        }
+        .padding(.vertical, 9)
+        .padding(.horizontal, 14)
+        .glassCard(radius: 14)
+    }
+
+    private var emptyBinRow: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "checkmark.circle")
+                .font(.system(size: 15))
+                .foregroundStyle(.white.opacity(0.45))
+                .frame(width: 26)
+            Text("Nothing in this bin.")
+                .font(.system(size: 12.5))
+                .foregroundStyle(Palette.sub)
+            Spacer()
+        }
+        .padding(.vertical, 9)
+        .padding(.horizontal, 14)
+        .glassCard(radius: 14)
     }
 
     /// Tri-state master checkbox above the list.

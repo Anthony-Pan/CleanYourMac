@@ -78,7 +78,10 @@ public enum SnapshotScreen: String, CaseIterable {
         case .mailAttachments:
             MailAttachmentsView(model: MailAttachmentsViewModel(mockItems: Self.mockAttachments()))
         case .trashBins:
-            TrashBinsView(model: TrashBinsViewModel(mockItems: Self.mockTrashItems()))
+            // Multi-bin state: the user's Trash, a volume bin with items,
+            // and an inaccessible bin surfacing the Full Disk Access hint.
+            TrashBinsView(model: TrashBinsViewModel(mockBins: Self.mockTrashBins(),
+                                                    mockItems: Self.mockTrashItems()))
         case .optimization:
             OptimizationView(model: OptimizationViewModel(mockItems: Self.mockStartupItems()))
         case .maintenance:
@@ -218,19 +221,35 @@ public enum SnapshotScreen: String, CaseIterable {
         ]
     }
 
+    private static let mockUserTrashRoot = "/Users/you/.Trash"
+    private static let mockBackupBinRoot = "/Volumes/Backup HD/.Trashes/501"
+
+    private static func mockTrashBins() -> [TrashBin] {
+        [
+            TrashBin(root: URL(fileURLWithPath: mockUserTrashRoot),
+                     displayName: "User Trash", isUserTrash: true, isAccessible: true),
+            TrashBin(root: URL(fileURLWithPath: mockBackupBinRoot),
+                     displayName: "Backup HD", isUserTrash: false, isAccessible: true),
+            TrashBin(root: URL(fileURLWithPath: "/Volumes/Time Machine/.Trashes/501"),
+                     displayName: "Time Machine", isUserTrash: false, isAccessible: false),
+        ]
+    }
+
     private static func mockTrashItems() -> [TrashItem] {
-        func item(_ name: String, _ size: Int64, _ ageDays: Int, dir: Bool = false) -> TrashItem {
-            TrashItem(url: URL(fileURLWithPath: "/Users/you/.Trash/\(name)"),
+        func item(_ bin: String, _ name: String, _ size: Int64, _ ageDays: Int,
+                  dir: Bool = false) -> TrashItem {
+            TrashItem(url: URL(fileURLWithPath: "\(bin)/\(name)"),
                       sizeBytes: size,
                       modificationDate: Date(timeIntervalSince1970: 1_735_000_000 - Double(ageDays) * 86_400),
-                      isDirectory: dir)
+                      isDirectory: dir, binID: bin)
         }
         return [
-            item("old-project-backup", 4_620_000_000, 30, dir: true),
-            item("Xcode_14.3.1.xip", 3_180_000_000, 120),
-            item("render-output-v2.mov", 1_450_000_000, 14),
-            item("node_modules", 820_000_000, 8, dir: true),
-            item("screenshot-archive", 96_000_000, 60, dir: true),
+            item(mockUserTrashRoot, "old-project-backup", 4_620_000_000, 30, dir: true),
+            item(mockUserTrashRoot, "Xcode_14.3.1.xip", 3_180_000_000, 120),
+            item(mockUserTrashRoot, "render-output-v2.mov", 1_450_000_000, 14),
+            item(mockUserTrashRoot, "node_modules", 820_000_000, 8, dir: true),
+            item(mockBackupBinRoot, "old-timelapse-exports", 2_260_000_000, 210, dir: true),
+            item(mockBackupBinRoot, "disk-image-scratch.dmg", 640_000_000, 95),
         ]
     }
 

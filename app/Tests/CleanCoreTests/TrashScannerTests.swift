@@ -184,4 +184,135 @@ final class TrashScannerTests: XCTestCase {
                        "freed bytes count only what was actually removed")
         XCTAssertFalse(fm.fileExists(atPath: good.path))
     }
+
+    // MARK: - Bin discovery
+
+    /// A temp directory posing as a mounted volume, optionally with the
+    /// `.Trashes/<uid>` directory the discovery rule looks for.
+    private func makeVolume(_ name: String, withBin: Bool) throws -> (volume: TrashBinDiscovery.Volume, bin: URL) {
+        let vol = sandbox.appendingPathComponent("Volumes/\(name)")
+        let bin = vol.appendingPathComponent(".Trashes/\(getuid())")
+        try fm.createDirectory(at: withBin ? bin : vol, withIntermediateDirectories: true)
+        return (TrashBinDiscovery.Volume(url: vol, name: name), bin)
+    }
+
+    func test_discoveryFollowsTheFixedRule() throws {
+        let (volA, binA) = try makeVolume("Backup HD", withBin: true)
+        let (volB, _) = try makeVolume("Bare Stick", withBin: false)
+
+        let bins = TrashBinDiscovery(userTrashRoot: trash) { [volA, volB] }.discoverBins()
+
+        XCTAssertEqual(bins.map(\.root.path), [trash.path, binA.path],
+                       "roots come only from the rule — user Trash plus <volume>/.Trashes/<uid>; a volume without that dir has no bin")
+        XCTAssertEqual(bins.map(\.displayName), ["User Trash", "Backup HD"])
+        XCTAssertEqual(bins.map(\.isUserTrash), [true, false])
+        XCTAssertTrue(bins.allSatisfy(\.isAccessible))
+    }
+
+    func test_missingUserTrashIsAnEmptyBinNotAnInaccessibleOne() {
+        let missing = sandbox.appendingPathComponent("NoTrashHere")
+        let bins = TrashBinDiscovery(userTrashRoot: missing) { [] }.discoverBins()
+
+        XCTAssertEqual(bins.map(\.isUserTrash), [true], "the user's bin is always present")
+        XCTAssertTrue(bins[0].isAccessible,
+                      "nothing there to fail on — scanning yields an honest zero")
+        XCTAssertEqual(TrashScanner.scanBins(bins), [])
+    }
+
+    func test_unlistableBinIsSurfacedAsInaccessibleNeverDropped() throws {
+        let (vol, bin) = try makeVolume("Locked", withBin: true)
+        try makeFile(bin.appendingPathComponent("unreachable.txt"), bytes: 10)
+        try fm.setAttributes([.posixPermissions: 0o000], ofItemAtPath: bin.path)
+        defer { try? fm.setAttributes([.posixPermissions: 0o700], ofItemAtPath: bin.path) }
+
+        let bins = TrashBinDiscovery(userTrashRoot: trash) { [vol] }.discoverBins()
+        let locked = try XCTUnwrap(bins.first { $0.displayName == "Locked" },
+                                   "an unlistable bin must stay in the list")
+        XCTAssertFalse(locked.isAccessible)
+
+        XCTAssertEqual(TrashScanner.scanBins(bins), [],
+                       "scanning skips the unreadable bin instead of failing — the UI surfaces it via isAccessible")
+    }
+
+    func test_defaultVolumeProviderExcludesTheBootVolume() {
+        XCTAssertFalse(TrashBinDiscovery.mountedNonBootVolumes().contains { $0.url.path == "/" },
+                       "the boot volume's trash is the user's Trash, handled separately")
+    }
+
+    // MARK: - Multi-bin scan
+
+    func test_multiBinScanTagsEveryItemWithItsBin() throws {
+        let (vol, bin) = try makeVolume("Backup HD", withBin: true)
+        try makeFile(trash.appendingPathComponent("user-file.txt"), bytes: 5_000)
+        try makeFile(bin.appendingPathComponent("volume-file.bin"), bytes: 90_000)
+        try makeFile(bin.appendingPathComponent("clip.mov"), bytes: 40_000)
+
+        let bins = TrashBinDiscovery(userTrashRoot: trash) { [vol] }.discoverBins()
+        var streamed = 0
+        let items = TrashScanner.scanBins(bins) { _ in streamed += 1 }
+
+        XCTAssertEqual(items.map(\.name), ["volume-file.bin", "clip.mov", "user-file.txt"],
+                       "one flat list, largest first, across every bin")
+        XCTAssertEqual(streamed, 3, "per-item streaming covers every bin")
+        XCTAssertEqual(items.first { $0.name == "user-file.txt" }?.binID, trash.path)
+        XCTAssertEqual(Set(items.filter { $0.binID == bin.path }.map(\.name)),
+                       ["volume-file.bin", "clip.mov"],
+                       "each item is tagged with the bin it was found in, for grouping")
+    }
+
+    // MARK: - Multi-bin removal
+
+    func test_removerAcceptsEveryBinAndRefusesEverythingOutside() throws {
+        let (vol, bin) = try makeVolume("Backup HD", withBin: true)
+        try makeFile(trash.appendingPathComponent("in-user.txt"), bytes: 10)
+        try makeFile(bin.appendingPathComponent("in-volume.txt"), bytes: 10)
+        let secret = try makeFile(outside.appendingPathComponent("secret.txt"), bytes: 10)
+
+        let bins = TrashBinDiscovery(userTrashRoot: trash) { [vol] }.discoverBins()
+        let items = TrashScanner.scanBins(bins)
+        let forged = TrashItem(url: secret, sizeBytes: 10, modificationDate: nil, isDirectory: false)
+
+        let report = TrashRemover(binRoots: bins.map(\.root)).remove(items + [forged])
+
+        XCTAssertEqual(Set(report.removed), Set(items.map(\.path)),
+                       "items inside any discovered bin are removable")
+        XCTAssertEqual(report.blocked.map(\.reason), [.outsideAllowedRoots],
+                       "anything outside every bin root is refused")
+        XCTAssertTrue(fm.fileExists(atPath: secret.path))
+        XCTAssertFalse(fm.fileExists(atPath: trash.appendingPathComponent("in-user.txt").path))
+        XCTAssertFalse(fm.fileExists(atPath: bin.appendingPathComponent("in-volume.txt").path))
+    }
+
+    func test_removerRefusesEachBinRootItself() throws {
+        let (vol, bin) = try makeVolume("Backup HD", withBin: true)
+        let bins = TrashBinDiscovery(userTrashRoot: trash) { [vol] }.discoverBins()
+        let remover = TrashRemover(binRoots: bins.map(\.root))
+
+        let roots = bins.map {
+            TrashItem(url: $0.root, sizeBytes: 0, modificationDate: nil, isDirectory: true)
+        }
+        let report = remover.remove(roots)
+
+        XCTAssertEqual(report.blocked.map(\.reason), [.isAllowedRootItself, .isAllowedRootItself],
+                       "each bin root may only ever have its contents removed, never itself")
+        XCTAssertTrue(report.removed.isEmpty)
+        XCTAssertTrue(fm.fileExists(atPath: trash.path))
+        XCTAssertTrue(fm.fileExists(atPath: bin.path))
+    }
+
+    func test_symlinkEscapingAVolumeBinIsBlocked() throws {
+        let (vol, bin) = try makeVolume("Backup HD", withBin: true)
+        let secret = try makeFile(outside.appendingPathComponent("vault.txt"), bytes: 10)
+        try fm.createSymbolicLink(at: bin.appendingPathComponent("escape"),
+                                  withDestinationURL: secret)
+
+        let bins = TrashBinDiscovery(userTrashRoot: trash) { [vol] }.discoverBins()
+        let items = TrashScanner.scanBins(bins)
+        let escape = try XCTUnwrap(item(named: "escape", in: items))
+
+        let report = TrashRemover(binRoots: bins.map(\.root)).remove([escape])
+        XCTAssertEqual(report.blocked.map(\.reason), [.outsideAllowedRoots],
+                       "symlink-escape protection applies to volume bins exactly as to the user's Trash")
+        XCTAssertTrue(fm.fileExists(atPath: secret.path))
+    }
 }
