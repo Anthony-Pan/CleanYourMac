@@ -16,7 +16,7 @@ set -euo pipefail
 APP_NAME="CleanYourMac"
 EXECUTABLE="CleanYourMacApp"
 BUNDLE_ID="${BUNDLE_ID:-com.anthonypan.CleanYourMac}"
-VERSION="${VERSION:-0.1.0}"
+VERSION="${VERSION:-1.1.0}"
 BUILD="${BUILD:-1}"
 IDENTITY="${IDENTITY:-}"
 MIN_MACOS="14.0"
@@ -25,22 +25,34 @@ ROOT="$(cd "$(dirname "$0")" && pwd)"
 DIST="$ROOT/dist"
 APP="$DIST/$APP_NAME.app"
 
-echo "==> Building release binaries"
-swift build -c release --product "$EXECUTABLE"
-swift build -c release --product snapshot
-BIN="$ROOT/.build/release/$EXECUTABLE"
-SNAP="$ROOT/.build/release/snapshot"
+echo "==> Building release binaries (universal)"
+if swift build -c release --arch arm64 --arch x86_64 --product "$EXECUTABLE" &&
+   swift build -c release --arch arm64 --arch x86_64 --product snapshot; then
+    BINDIR="$ROOT/.build/apple/Products/Release"
+else
+    echo "    (universal build failed — falling back to native arch)"
+    swift build -c release --product "$EXECUTABLE"
+    swift build -c release --product snapshot
+    BINDIR="$ROOT/.build/release"
+fi
+BIN="$BINDIR/$EXECUTABLE"
+SNAP="$BINDIR/snapshot"
 
 echo "==> Assembling bundle at $APP"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/$EXECUTABLE"
 
-echo "==> Generating app icon"
 ICONSET="$DIST/AppIcon.iconset"
 MASTER="$DIST/icon_1024.png"
 rm -rf "$ICONSET"; mkdir -p "$ICONSET"
-"$SNAP" icon "$MASTER"
+if [[ -f "$ROOT/Assets/icon_1024.png" ]]; then
+    echo "==> Using custom icon (masked to the macOS icon shape)"
+    swift "$ROOT/installer/render_assets.swift" appicon "$ROOT/Assets/icon_1024.png" "$MASTER"
+else
+    echo "==> Generating app icon"
+    "$SNAP" icon "$MASTER"
+fi
 # iconutil expects these exact names/sizes.
 gen() { sips -z "$1" "$1" "$MASTER" --out "$ICONSET/$2" >/dev/null; }
 gen 16   icon_16x16.png
@@ -86,7 +98,10 @@ if [[ -n "$IDENTITY" ]]; then
     codesign --verify --strict --verbose=2 "$APP"
     spctl -a -vvv -t exec "$APP" || echo "  (Gatekeeper will pass only after notarization — expected.)"
 else
-    echo "==> No IDENTITY set — bundle is UNSIGNED."
+    echo "==> Ad-hoc signing (no IDENTITY set)"
+    codesign --force --sign - "$APP"
+    codesign --verify --strict --verbose=2 "$APP"
+    echo "    Note: ad-hoc signed. Gatekeeper-friendly distribution needs a Developer ID."
 fi
 
 echo ""
