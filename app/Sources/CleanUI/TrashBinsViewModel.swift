@@ -19,6 +19,9 @@ final class TrashBinsViewModel {
     /// Item IDs (paths) currently selected for permanent removal.
     private(set) var selected: Set<String> = []
     private(set) var lastReport: TrashRemovalReport?
+    /// True when the last scan was stopped before it finished, so the results
+    /// are partial. Guards against reporting a cancelled scan as an empty Trash.
+    private(set) var wasCancelled = false
 
     // Live progress shown while scanning.
     private(set) var scannedBytes: Int64 = 0
@@ -95,6 +98,7 @@ final class TrashBinsViewModel {
 
     private func runScan() async {
         phase = .scanning
+        wasCancelled = false
         items = []
         selected = []
         lastReport = nil
@@ -128,7 +132,16 @@ final class TrashBinsViewModel {
         // Everything selected by default: these items were already thrown
         // away once, so the expected action is emptying all of it.
         selected = Set(items.map(\.id))
-        phase = .results
+
+        if Task.isCancelled {
+            // Stopped early. Show whatever was sized so far, or return to the
+            // start screen — never the empty-Trash screen, which would falsely
+            // claim the Trash is empty when the scan simply didn't finish.
+            wasCancelled = true
+            phase = items.isEmpty ? .idle : .results
+        } else {
+            phase = .results
+        }
     }
 
     // MARK: - Empty (permanent removal)

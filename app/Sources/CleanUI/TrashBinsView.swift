@@ -220,7 +220,9 @@ struct TrashBinsView: View {
     private var resultsView: some View {
         VStack(spacing: 0) {
             TopBar(title: "Trash Bins") {
-                if model.selectedCount > 0 {
+                if model.wasCancelled {
+                    StatusPill(text: "Partial — scan stopped early", tone: .warn)
+                } else if model.selectedCount > 0 {
                     StatusPill(text: "\(model.selectedCount) selected — permanent", tone: .warn)
                 } else {
                     StatusPill(text: "Nothing selected", tone: .blue)
